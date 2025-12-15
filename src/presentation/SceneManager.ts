@@ -4,183 +4,147 @@ import type { AppConfig, Disposable } from '../types';
 import { VerletPhysicsEngine } from '../simulation/VerletPhysicsEngine';
 import { InteractionController } from './InteractionController';
 import { PerformanceMonitor } from '../infrastructure/PerformanceMonitor';
+import { RendererSystem } from './systems/RendererSystem';
+import { ClothFactory } from './factories/ClothFactory';
 
 export class SceneManager implements Disposable {
-    private scene: THREE.Scene;
-    private camera: THREE.PerspectiveCamera;
-    private renderer: THREE.WebGLRenderer;
-    private controls: OrbitControls;
-    private requestID: number | null = null;
-    private container: HTMLElement | null = null;
-    private config: AppConfig;
-
-    // Physics & Interaction Properties
+    private rendererSystem: RendererSystem;
     private physicsEngine: VerletPhysicsEngine;
-    private garmentMesh: THREE.Mesh | null = null;
     private interactionController: InteractionController | null = null;
     private perfMonitor: PerformanceMonitor;
+    private controls: OrbitControls;
+
+    private config: AppConfig;
     private clock: THREE.Clock;
+    private requestID: number | null = null;
+    private garmentMesh: THREE.Mesh | null = null;
+    private ballMesh: THREE.Mesh | null = null;
 
     constructor(config: AppConfig) {
         this.config = config;
         this.clock = new THREE.Clock();
+
+        this.rendererSystem = new RendererSystem(config);
         this.physicsEngine = new VerletPhysicsEngine();
-        this.perfMonitor = new PerformanceMonitor(); // Initialize Monitor
+        this.perfMonitor = new PerformanceMonitor();
 
-        this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0xf0f0f0);
-
-        // Camera FOV 45
-        this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-        this.camera.position.set(0, 0, 2);
-
-        this.renderer = new THREE.WebGLRenderer({
-            antialias: config.rendering.antialias,
-            powerPreference: 'high-performance'
-        });
-
-        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, config.rendering.pixelRatioMax));
-
-        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+        this.controls = new OrbitControls(this.rendererSystem.camera, this.rendererSystem.renderer.domElement);
         this.controls.enableDamping = true;
-        this.controls.dampingFactor = 0.05;
-
-        // Remap controls: Left Click for Grab, Right Click for Rotate
-        this.controls.mouseButtons = {
-            LEFT: null as any,
-            MIDDLE: THREE.MOUSE.DOLLY,
-            RIGHT: THREE.MOUSE.ROTATE
-        };
+        this.controls.maxDistance = 15;
     }
 
     async initialize(container: HTMLElement): Promise<void> {
-        this.container = container;
-        this.renderer.setSize(container.clientWidth, container.clientHeight);
-        container.appendChild(this.renderer.domElement);
+        this.rendererSystem.mount(container);
+
+        this.rendererSystem.camera.position.set(0, 1.0, 5);
+        this.controls.target.set(0, 1.0, 0);
+        this.controls.update();
 
         this.setupLights();
-        this.setupResizeHandler();
 
-        // 1. Create Cloth Mesh (Solid Texture)
-        await this.createClothMesh();
+        // 1. Create Cloth
+        this.garmentMesh = await ClothFactory.createCloth(2, 2, 20);
+        this.garmentMesh.position.set(0, 1.0, 0);
+        this.rendererSystem.scene.add(this.garmentMesh);
 
-        // 2. Initialize Physics
-        if (this.garmentMesh && this.config.physics.enabled) {
+        // 2. Create Ball
+        this.createBall();
+
+        // 3. Initialize Physics
+        if (this.config.physics.enabled) {
             await this.physicsEngine.initialize(this.garmentMesh, {
-                gravity: this.config.physics.gravity,
-                iterations: this.config.physics.constraintIterations
+                gravity: -9.81,
+                iterations: 8
             });
+
+            const pinIndices = [];
+            for (let i = 0; i <= 20; i++) pinIndices.push(i);
+            this.physicsEngine.pinIndices(pinIndices);
+
+            // Add Ball Collision
+            if (this.ballMesh) {
+                // FIX: Convert initial ball pos to cloth local space
+                const localPos = this.ballMesh.position.clone();
+                this.garmentMesh.worldToLocal(localPos);
+
+                this.physicsEngine.addCollisionSphere(localPos, 0.3);
+            }
         }
 
-        // 3. Initialize Interaction Controller
-        if (this.garmentMesh) {
-            this.interactionController = new InteractionController(
-                this.renderer.domElement,
-                this.camera,
-                this.garmentMesh,
-                this.physicsEngine
-            );
-        }
+        this.interactionController = new InteractionController(
+            this.rendererSystem.renderer.domElement,
+            this.rendererSystem.camera,
+            this.garmentMesh,
+            this.physicsEngine
+        );
 
         this.startLoop();
     }
 
-    private async createClothMesh() {
-        // 20x20 Grid for smoother simulation
-        const geometry = new THREE.PlaneGeometry(1, 1, 20, 20);
-        geometry.translate(0, 0.5, 0);
-
-        // Load UV Grid Texture for visualization
-        const loader = new THREE.TextureLoader();
-        // Using a reliable placeholder texture
-        const texture = loader.load('https://threejs.org/examples/textures/uv_grid_opengl.jpg');
-        texture.wrapS = THREE.RepeatWrapping;
-        texture.wrapT = THREE.RepeatWrapping;
-
+    private createBall() {
+        const geometry = new THREE.SphereGeometry(0.3, 64, 64);
         const material = new THREE.MeshStandardMaterial({
-            color: 0xffffff,
-            map: texture,          // Apply texture
-            side: THREE.DoubleSide,
-            wireframe: false,      // Disable wireframe
-            roughness: 0.6,
+            color: 0xcccccc,
+            roughness: 0.4,
             metalness: 0.1
         });
-
-        this.garmentMesh = new THREE.Mesh(geometry, material);
-
-        // Enable shadow casting support
-        this.garmentMesh.castShadow = true;
-        this.garmentMesh.receiveShadow = true;
-
-        this.scene.add(this.garmentMesh);
+        this.ballMesh = new THREE.Mesh(geometry, material);
+        this.ballMesh.position.set(0, 1.0, 0.5);
+        this.ballMesh.castShadow = true;
+        this.ballMesh.receiveShadow = true;
+        this.rendererSystem.scene.add(this.ballMesh);
     }
 
     private setupLights() {
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-        dirLight.position.set(5, 10, 7);
-        dirLight.castShadow = true;
-        this.scene.add(ambientLight, dirLight);
+        const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+        const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+        dir.position.set(5, 10, 10);
+        dir.castShadow = true;
+        const fill = new THREE.DirectionalLight(0xffffff, 0.3);
+        fill.position.set(-5, 2, 5);
+        this.rendererSystem.scene.add(ambient, dir, fill);
     }
-
-    private setupResizeHandler() {
-        window.addEventListener('resize', this.onWindowResize);
-    }
-
-    private onWindowResize = () => {
-        if (!this.container) return;
-        const width = this.container.clientWidth;
-        const height = this.container.clientHeight;
-
-        this.camera.aspect = width / height;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(width, height);
-    };
 
     private startLoop() {
         const animate = () => {
             this.requestID = requestAnimationFrame(animate);
-
             const deltaTime = this.clock.getDelta();
+            const now = this.clock.getElapsedTime();
 
-            // Update Performance Monitor
             this.perfMonitor.update();
+            this.controls.update();
 
-            // Physics Step
+            if (this.ballMesh && this.garmentMesh) {
+                // Animate Ball
+                this.ballMesh.position.x = Math.sin(now * 0.5) * 0.5;
+                this.ballMesh.position.z = Math.cos(now * 0.5) * 0.3 + 0.5;
+
+                // FIX: Update collision in Local Space
+                if (this.config.physics.enabled) {
+                    // Clone world position, convert to local space of the cloth
+                    const localPos = this.ballMesh.position.clone();
+                    this.garmentMesh.worldToLocal(localPos);
+
+                    this.physicsEngine.updateSpherePosition(0, localPos);
+                }
+            }
+
             if (this.config.physics.enabled && this.garmentMesh) {
-                this.physicsEngine.step(deltaTime);
+                this.physicsEngine.step(deltaTime, this.garmentMesh);
                 this.physicsEngine.syncToMesh(this.garmentMesh);
             }
 
-            this.controls.update();
-            this.renderer.render(this.scene, this.camera);
+            this.rendererSystem.renderer.render(this.rendererSystem.scene, this.rendererSystem.camera);
         };
         animate();
     }
 
     dispose(): void {
         if (this.requestID) cancelAnimationFrame(this.requestID);
-        window.removeEventListener('resize', this.onWindowResize);
-
-        this.controls.dispose();
-        this.renderer.dispose();
+        this.rendererSystem.dispose();
         this.physicsEngine.dispose();
         this.interactionController?.dispose();
-        this.perfMonitor.dispose(); // Dispose Monitor
-
-        if (this.container && this.renderer.domElement.parentNode === this.container) {
-            this.container.removeChild(this.renderer.domElement);
-        }
-
-        this.scene.traverse((object) => {
-            if (object instanceof THREE.Mesh) {
-                object.geometry.dispose();
-                if (object.material instanceof THREE.Material) {
-                    object.material.dispose();
-                }
-            }
-        });
+        this.perfMonitor.dispose();
+        this.controls.dispose();
     }
 }

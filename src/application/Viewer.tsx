@@ -9,18 +9,15 @@ export const Viewer: React.FC = () => {
     useEffect(() => {
         if (!containerRef.current) return;
 
-        // 1. Detect Capability & Config
         const capability = detectCapability();
         const config = getRuntimeConfig(capability);
         console.log(`Initializing Viewer with profile: ${capability}`);
 
-        // 2. Initialize Scene Manager
         const sceneManager = new SceneManager(config);
         sceneManagerRef.current = sceneManager;
 
         sceneManager.initialize(containerRef.current).catch(console.error);
 
-        // 3. Cleanup
         return () => {
             sceneManager.dispose();
         };

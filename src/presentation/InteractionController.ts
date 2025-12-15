@@ -10,6 +10,7 @@ export class InteractionController implements Disposable {
 
     private isDragging = false;
     private draggedParticleIndex: number | null = null;
+    public enabled = true;
 
     private canvas: HTMLElement;
     private camera: THREE.Camera;
@@ -27,15 +28,20 @@ export class InteractionController implements Disposable {
         this.mesh = mesh;
         this.physics = physics;
 
-        // Bind events
         this.canvas.addEventListener('mousedown', this.onMouseDown);
         this.canvas.addEventListener('mousemove', this.onMouseMove);
         window.addEventListener('mouseup', this.onMouseUp);
-
-        // Touch support (basic)
         this.canvas.addEventListener('touchstart', this.onTouchStart, { passive: false });
         this.canvas.addEventListener('touchmove', this.onTouchMove, { passive: false });
         window.addEventListener('touchend', this.onMouseUp);
+    }
+
+    public setEnabled(isEnabled: boolean) {
+        this.enabled = isEnabled;
+        if (!isEnabled) {
+            this.isDragging = false;
+            this.draggedParticleIndex = null;
+        }
     }
 
     private updateMouse(clientX: number, clientY: number) {
@@ -49,7 +55,6 @@ export class InteractionController implements Disposable {
         let minDist = Infinity;
         let index = -1;
 
-        // Brute force search (sufficient for < 2000 particles)
         for (let i = 0; i < positions.length; i += 3) {
             const dx = point.x - positions[i];
             const dy = point.y - positions[i + 1];
@@ -61,22 +66,9 @@ export class InteractionController implements Disposable {
                 index = i / 3;
             }
         }
-
-        // Threshold: Only grab if within 0.1 units
-        return minDist < 0.01 ? index : null;
+        // Threshold 0.2 units
+        return minDist < 0.2 ? index : null;
     }
-
-    private onMouseDown = (e: MouseEvent) => {
-        if (e.button !== 0) return; // Only left click
-        this.handleStart(e.clientX, e.clientY);
-    };
-
-    private onTouchStart = (e: TouchEvent) => {
-        if (e.touches.length > 0) {
-            e.preventDefault(); // Prevent scrolling
-            this.handleStart(e.touches[0].clientX, e.touches[0].clientY);
-        }
-    };
 
     private handleStart(x: number, y: number) {
         this.updateMouse(x, y);
@@ -86,23 +78,48 @@ export class InteractionController implements Disposable {
         if (intersects.length > 0) {
             const hitPoint = intersects[0].point;
 
-            // Find nearest physics particle to the click
-            this.draggedParticleIndex = this.findNearestParticle(hitPoint);
+            // FIX: Convert World Hit Point -> Local Mesh Space
+            // The physics engine works in local space (relative to mesh position)
+            const localPoint = this.mesh.worldToLocal(hitPoint.clone());
+
+            this.draggedParticleIndex = this.findNearestParticle(localPoint);
 
             if (this.draggedParticleIndex !== null) {
                 this.isDragging = true;
 
-                // Setup a virtual plane at the hit depth to drag against
+                // Plane stays in World Space for dragging calculation
                 this.plane.setFromNormalAndCoplanarPoint(
                     this.camera.getWorldDirection(new THREE.Vector3()),
                     hitPoint
                 );
-
-                // Disable orbit controls if you have access, or stop propagation
-                // For now, we rely on the fact that we are handling the logic
             }
         }
     }
+
+    private handleMove(x: number, y: number) {
+        if (!this.enabled || !this.isDragging || this.draggedParticleIndex === null) return;
+
+        this.updateMouse(x, y);
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+
+        if (this.raycaster.ray.intersectPlane(this.plane, this.planeIntersect)) {
+            // FIX: Convert the dragged point from World -> Local before sending to physics
+            const localTarget = this.mesh.worldToLocal(this.planeIntersect.clone());
+            this.physics.pinParticle(this.draggedParticleIndex, localTarget);
+        }
+    }
+
+    // ... (Rest of file: onMouseDown, onTouchStart, onMouseMove, etc. remain the same)
+    private onMouseDown = (e: MouseEvent) => {
+        if (!this.enabled || e.button !== 0) return;
+        this.handleStart(e.clientX, e.clientY);
+    };
+
+    private onTouchStart = (e: TouchEvent) => {
+        if (!this.enabled || e.touches.length === 0) return;
+        e.preventDefault();
+        this.handleStart(e.touches[0].clientX, e.touches[0].clientY);
+    };
 
     private onMouseMove = (e: MouseEvent) => {
         this.handleMove(e.clientX, e.clientY);
@@ -114,18 +131,6 @@ export class InteractionController implements Disposable {
             this.handleMove(e.touches[0].clientX, e.touches[0].clientY);
         }
     };
-
-    private handleMove(x: number, y: number) {
-        if (!this.isDragging || this.draggedParticleIndex === null) return;
-
-        this.updateMouse(x, y);
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-
-        if (this.raycaster.ray.intersectPlane(this.plane, this.planeIntersect)) {
-            // Move the pinned particle to the new mouse position
-            this.physics.pinParticle(this.draggedParticleIndex, this.planeIntersect);
-        }
-    }
 
     private onMouseUp = () => {
         if (this.isDragging && this.draggedParticleIndex !== null) {
