@@ -1,8 +1,9 @@
-import { Mesh, Vector3, PlaneGeometry, BufferAttribute } from 'three';
+import { Mesh, Vector3, BufferAttribute } from 'three';
 import type { IPhysicsEngine, PhysicsConfig } from './IPhysicsEngine';
 import type { Particle, Constraint, CollisionSphere } from './types';
 import { ConstraintSolver } from './solvers/ConstraintSolver';
 import { CollisionSolver } from './solvers/CollisionSolver';
+import { Adjacency } from './utils/Adjacency'; // Import the helper
 
 export class VerletPhysicsEngine implements IPhysicsEngine {
     private particles: Particle[] = [];
@@ -36,8 +37,17 @@ export class VerletPhysicsEngine implements IPhysicsEngine {
         this.collisionSpheres = [];
 
         const geometry = mesh.geometry;
+
+        // Ensure geometry is indexed (critical for cloth)
+        if (!geometry.index) {
+            // If not indexed, we would need to merge vertices.
+            // For MVP, we assume the loader provides indexed geometry.
+            throw new Error("Cloth mesh must be indexed (shared vertices).");
+        }
+
         const positions = geometry.attributes.position.array;
 
+        // 1. Create Particles
         for (let i = 0; i < positions.length; i += 3) {
             const p = new Vector3(positions[i], positions[i + 1], positions[i + 2]);
             this.particles.push({
@@ -50,43 +60,36 @@ export class VerletPhysicsEngine implements IPhysicsEngine {
             });
         }
 
-        if (geometry instanceof PlaneGeometry) {
-            const params = geometry.parameters;
-            this.createGridConstraints(params.widthSegments, params.heightSegments);
+        // 2. Create Constraints from Mesh Topology
+        const edges = Adjacency.findEdges(geometry);
+
+        for (const edge of edges) {
+            const p1 = this.particles[edge.a];
+            const p2 = this.particles[edge.b];
+            const dist = p1.position.distanceTo(p2.position);
+
+            this.constraints.push({
+                p1: edge.a,
+                p2: edge.b,
+                restDistance: dist
+            });
         }
+
+        console.log(`Physics Initialized: ${this.particles.length} particles, ${this.constraints.length} constraints`);
     }
 
-    private createGridConstraints(w: number, h: number) {
-        const width = w + 1;
-        const height = h + 1;
-        const add = (a: number, b: number) => {
-            const dist = this.particles[a].position.distanceTo(this.particles[b].position);
-            this.constraints.push({ p1: a, p2: b, restDistance: dist });
-        };
-
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const i = y * width + x;
-                if (x < width - 1) add(i, i + 1);
-                if (y < height - 1) add(i, i + width);
-            }
-        }
-    }
 
     step(deltaTime: number, mesh?: Mesh): void {
         const dt = 18 / 1000;
         const dtSq = dt * dt;
-        this.time += dt; // Slower time progression for smoother wind
+        this.time += dt;
 
-        // 1. Calculate Wind (Gentle Breeze)
         this.calculateWind(this.time);
 
-        // 2. Apply Aerodynamics
         if (mesh) {
             const normals = mesh.geometry.attributes.normal;
             for (let i = 0; i < this.particles.length; i++) {
                 this.normal.fromBufferAttribute(normals as BufferAttribute, i);
-                // Reduced wind multiplier from 10 to 2 for gentle effect
                 this.tmpForce.copy(this.normal).normalize().multiplyScalar(this.normal.dot(this.windForce));
                 this.particles[i].acceleration.add(this.tmpForce.multiplyScalar(2.0));
             }
@@ -94,26 +97,18 @@ export class VerletPhysicsEngine implements IPhysicsEngine {
 
         const gravity = new Vector3(0, -9.81, 0).multiplyScalar(0.1);
 
-        // 3. Integrate
         const drag = 0.97;
         for (const p of this.particles) {
             if (p.pinned) continue;
-
             p.acceleration.add(gravity);
-
             const velocity = p.position.clone().sub(p.prevPosition);
             velocity.multiplyScalar(drag);
-
-            const nextPos = p.position.clone()
-                .add(velocity)
-                .add(p.acceleration.multiplyScalar(dtSq));
-
+            const nextPos = p.position.clone().add(velocity).add(p.acceleration.multiplyScalar(dtSq));
             p.prevPosition.copy(p.position);
             p.position.copy(nextPos);
             p.acceleration.set(0, 0, 0);
         }
 
-        // 4. Solve
         for (let i = 0; i < this.config.iterations; i++) {
             ConstraintSolver.solve(this.particles, this.constraints);
             CollisionSolver.solve(this.particles, this.collisionSpheres);
@@ -121,14 +116,8 @@ export class VerletPhysicsEngine implements IPhysicsEngine {
     }
 
     private calculateWind(now: number) {
-        // Slower frequency (now / 2.0) and lower amplitude
         const windStrength = Math.cos(now / 2.0) * 5 + 10;
-        this.windForce.set(
-            Math.sin(now),
-            Math.cos(now * 0.8),
-            Math.sin(now * 0.5)
-        );
-        // Reduced scalar from 0.1 to 0.05
+        this.windForce.set(Math.sin(now), Math.cos(now * 0.8), Math.sin(now * 0.5));
         this.windForce.normalize().multiplyScalar(windStrength * 0.05);
     }
 

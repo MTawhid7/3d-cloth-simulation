@@ -5,146 +5,96 @@ import { VerletPhysicsEngine } from '../simulation/VerletPhysicsEngine';
 import { InteractionController } from './InteractionController';
 import { PerformanceMonitor } from '../infrastructure/PerformanceMonitor';
 import { RendererSystem } from './systems/RendererSystem';
-import { ClothFactory } from './factories/ClothFactory';
+import { PhysicsSystem } from './systems/PhysicsSystem';
+import { DebugSystem } from './systems/DebugSystem';
+import { AssetLoaderSystem } from './systems/AssetLoaderSystem';
 
 export class SceneManager implements Disposable {
-    private rendererSystem: RendererSystem;
-    private physicsEngine: VerletPhysicsEngine;
-    private interactionController: InteractionController | null = null;
-    private perfMonitor: PerformanceMonitor;
+    private renderer: RendererSystem;
+    private physics: VerletPhysicsEngine;
+    private physicsSystem: PhysicsSystem;
+    private debug: DebugSystem;
+    private perf: PerformanceMonitor;
     private controls: OrbitControls;
+    private interaction: InteractionController | null = null;
 
-    private config: AppConfig;
-    private clock: THREE.Clock;
+    private clock = new THREE.Clock();
     private requestID: number | null = null;
     private garmentMesh: THREE.Mesh | null = null;
-    private ballMesh: THREE.Mesh | null = null;
 
     constructor(config: AppConfig) {
-        this.config = config;
-        this.clock = new THREE.Clock();
+        this.renderer = new RendererSystem(config);
+        this.physics = new VerletPhysicsEngine();
+        this.physicsSystem = new PhysicsSystem(this.physics, config);
+        this.debug = new DebugSystem(this.renderer.scene, this.physics);
+        this.perf = new PerformanceMonitor();
 
-        this.rendererSystem = new RendererSystem(config);
-        this.physicsEngine = new VerletPhysicsEngine();
-        this.perfMonitor = new PerformanceMonitor();
-
-        this.controls = new OrbitControls(this.rendererSystem.camera, this.rendererSystem.renderer.domElement);
+        this.controls = new OrbitControls(this.renderer.camera, this.renderer.renderer.domElement);
         this.controls.enableDamping = true;
-        this.controls.maxDistance = 15;
     }
 
     async initialize(container: HTMLElement): Promise<void> {
-        this.rendererSystem.mount(container);
-
-        this.rendererSystem.camera.position.set(0, 1.0, 5);
+        this.renderer.mount(container);
+        this.renderer.camera.position.set(0, 1.4, 2.5); // Eye level
         this.controls.target.set(0, 1.0, 0);
         this.controls.update();
-
         this.setupLights();
 
-        // 1. Create Cloth
-        this.garmentMesh = await ClothFactory.createCloth(2, 2, 20);
-        this.garmentMesh.position.set(0, 1.0, 0);
-        this.rendererSystem.scene.add(this.garmentMesh);
+        // 1. Load Assets
+        await AssetLoaderSystem.loadMannequin(this.renderer.scene);
 
-        // 2. Create Ball
-        this.createBall();
+        try {
+            this.garmentMesh = await AssetLoaderSystem.loadShirt(this.renderer.scene);
 
-        // 3. Initialize Physics
-        if (this.config.physics.enabled) {
-            await this.physicsEngine.initialize(this.garmentMesh, {
-                gravity: -9.81,
-                iterations: 8
-            });
+            // 2. Setup Physics
+            await this.physics.initialize(this.garmentMesh, { gravity: -9.81, iterations: 8 });
+            this.physicsSystem.setupColliders();
 
-            const pinIndices = [];
-            for (let i = 0; i <= 20; i++) pinIndices.push(i);
-            this.physicsEngine.pinIndices(pinIndices);
+            // 3. Debugging (COMMENTED OUT TO HIDE RED SPHERES)
+            // this.debug.showColliders();
 
-            // Add Ball Collision
-            if (this.ballMesh) {
-                // FIX: Convert initial ball pos to cloth local space
-                const localPos = this.ballMesh.position.clone();
-                this.garmentMesh.worldToLocal(localPos);
-
-                this.physicsEngine.addCollisionSphere(localPos, 0.3);
-            }
+            // 4. Setup Interaction
+            this.interaction = new InteractionController(
+                this.renderer.renderer.domElement,
+                this.renderer.camera,
+                this.garmentMesh,
+                this.physics
+            );
+        } catch (e) {
+            console.error("Simulation failed to start due to asset error.");
         }
 
-        this.interactionController = new InteractionController(
-            this.rendererSystem.renderer.domElement,
-            this.rendererSystem.camera,
-            this.garmentMesh,
-            this.physicsEngine
-        );
-
         this.startLoop();
-    }
-
-    private createBall() {
-        const geometry = new THREE.SphereGeometry(0.3, 64, 64);
-        const material = new THREE.MeshStandardMaterial({
-            color: 0xcccccc,
-            roughness: 0.4,
-            metalness: 0.1
-        });
-        this.ballMesh = new THREE.Mesh(geometry, material);
-        this.ballMesh.position.set(0, 1.0, 0.5);
-        this.ballMesh.castShadow = true;
-        this.ballMesh.receiveShadow = true;
-        this.rendererSystem.scene.add(this.ballMesh);
-    }
+      }
 
     private setupLights() {
         const ambient = new THREE.AmbientLight(0xffffff, 0.6);
         const dir = new THREE.DirectionalLight(0xffffff, 1.0);
         dir.position.set(5, 10, 10);
-        dir.castShadow = true;
-        const fill = new THREE.DirectionalLight(0xffffff, 0.3);
-        fill.position.set(-5, 2, 5);
-        this.rendererSystem.scene.add(ambient, dir, fill);
+        this.renderer.scene.add(ambient, dir);
     }
 
     private startLoop() {
         const animate = () => {
             this.requestID = requestAnimationFrame(animate);
-            const deltaTime = this.clock.getDelta();
-            const now = this.clock.getElapsedTime();
+            const dt = this.clock.getDelta();
 
-            this.perfMonitor.update();
+            this.perf.update();
             this.controls.update();
+            this.physicsSystem.update(dt, this.garmentMesh);
 
-            if (this.ballMesh && this.garmentMesh) {
-                // Animate Ball
-                this.ballMesh.position.x = Math.sin(now * 0.5) * 0.5;
-                this.ballMesh.position.z = Math.cos(now * 0.5) * 0.3 + 0.5;
-
-                // FIX: Update collision in Local Space
-                if (this.config.physics.enabled) {
-                    // Clone world position, convert to local space of the cloth
-                    const localPos = this.ballMesh.position.clone();
-                    this.garmentMesh.worldToLocal(localPos);
-
-                    this.physicsEngine.updateSpherePosition(0, localPos);
-                }
-            }
-
-            if (this.config.physics.enabled && this.garmentMesh) {
-                this.physicsEngine.step(deltaTime, this.garmentMesh);
-                this.physicsEngine.syncToMesh(this.garmentMesh);
-            }
-
-            this.rendererSystem.renderer.render(this.rendererSystem.scene, this.rendererSystem.camera);
+            this.renderer.renderer.render(this.renderer.scene, this.renderer.camera);
         };
         animate();
     }
 
     dispose(): void {
         if (this.requestID) cancelAnimationFrame(this.requestID);
-        this.rendererSystem.dispose();
-        this.physicsEngine.dispose();
-        this.interactionController?.dispose();
-        this.perfMonitor.dispose();
+        this.renderer.dispose();
+        this.physics.dispose();
+        this.debug.dispose();
+        this.interaction?.dispose();
+        this.perf.dispose();
         this.controls.dispose();
     }
 }
