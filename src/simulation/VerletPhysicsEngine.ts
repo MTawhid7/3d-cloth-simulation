@@ -1,156 +1,114 @@
-import { Mesh, Vector3, BufferAttribute } from 'three';
+import { Mesh, Vector3 } from 'three';
 import type { IPhysicsEngine, PhysicsConfig } from './IPhysicsEngine';
-import type { Particle, Constraint, CollisionSphere } from './types';
+import { PhysicsState } from './PhysicsState';
+import { WindForce } from './forces/WindForce';
+import { BVHCollider } from './solvers/BVHCollider';
 import { ConstraintSolver } from './solvers/ConstraintSolver';
-import { CollisionSolver } from './solvers/CollisionSolver';
-import { Adjacency } from './utils/Adjacency'; // Import the helper
 
 export class VerletPhysicsEngine implements IPhysicsEngine {
-    private particles: Particle[] = [];
-    private constraints: Constraint[] = [];
-    public collisionSpheres: CollisionSphere[] = [];
-    private config: PhysicsConfig;
-    private time = 0;
+    private state = new PhysicsState();
+    private wind = new WindForce();
+    private collider = new BVHCollider();
 
-    private tmpForce = new Vector3();
-    private windForce = new Vector3();
-    private normal = new Vector3();
-
-    constructor() {
-        this.config = { gravity: -9.81, iterations: 5 };
-    }
-
-    addCollisionSphere(position: Vector3, radius: number) {
-        this.collisionSpheres.push({ position, radius });
-    }
-
-    updateSpherePosition(index: number, pos: Vector3) {
-        if (this.collisionSpheres[index]) {
-            this.collisionSpheres[index].position.copy(pos);
-        }
+    setColliderMesh(mesh: Mesh) {
+        this.collider.setCollider(mesh);
     }
 
     async initialize(mesh: Mesh, config: PhysicsConfig): Promise<void> {
-        this.config = config;
-        this.particles = [];
-        this.constraints = [];
-        this.collisionSpheres = [];
+        this.state.config = config;
+        this.state.reset();
 
-        const geometry = mesh.geometry;
-
-        // Ensure geometry is indexed (critical for cloth)
-        if (!geometry.index) {
-            // If not indexed, we would need to merge vertices.
-            // For MVP, we assume the loader provides indexed geometry.
-            throw new Error("Cloth mesh must be indexed (shared vertices).");
-        }
-
-        const positions = geometry.attributes.position.array;
-
-        // 1. Create Particles
+        const positions = mesh.geometry.attributes.position.array;
         for (let i = 0; i < positions.length; i += 3) {
-            const p = new Vector3(positions[i], positions[i + 1], positions[i + 2]);
-            this.particles.push({
-                position: p.clone(),
-                prevPosition: p.clone(),
-                originalPosition: p.clone(),
-                acceleration: new Vector3(0, 0, 0),
-                mass: 0.1,
-                pinned: false,
-            });
+            this.state.addParticle(positions[i], positions[i + 1], positions[i + 2], 0.1);
         }
 
-        // 2. Create Constraints from Mesh Topology
-        const edges = Adjacency.findEdges(geometry);
-
-        for (const edge of edges) {
-            const p1 = this.particles[edge.a];
-            const p2 = this.particles[edge.b];
-            const dist = p1.position.distanceTo(p2.position);
-
-            this.constraints.push({
-                p1: edge.a,
-                p2: edge.b,
-                restDistance: dist
-            });
-        }
-
-        console.log(`Physics Initialized: ${this.particles.length} particles, ${this.constraints.length} constraints`);
-    }
-
-
-    step(deltaTime: number, mesh?: Mesh): void {
-        const dt = 18 / 1000;
-        const dtSq = dt * dt;
-        this.time += dt;
-
-        this.calculateWind(this.time);
-
-        if (mesh) {
-            const normals = mesh.geometry.attributes.normal;
-            for (let i = 0; i < this.particles.length; i++) {
-                this.normal.fromBufferAttribute(normals as BufferAttribute, i);
-                this.tmpForce.copy(this.normal).normalize().multiplyScalar(this.normal.dot(this.windForce));
-                this.particles[i].acceleration.add(this.tmpForce.multiplyScalar(2.0));
+        // Adjacency Logic (Simplified for brevity, assuming indexed geometry)
+        if (mesh.geometry.index) {
+            const index = mesh.geometry.index;
+            const edges = new Set<string>();
+            const addEdge = (a: number, b: number) => {
+                const key = a < b ? `${a}_${b}` : `${b}_${a}`;
+                if (!edges.has(key)) {
+                    edges.add(key);
+                    const p1 = this.state.particles[a];
+                    const p2 = this.state.particles[b];
+                    this.state.addConstraint(a, b, p1.position.distanceTo(p2.position));
+                }
+            };
+            for (let i = 0; i < index.count; i += 3) {
+                addEdge(index.getX(i), index.getX(i + 1));
+                addEdge(index.getX(i + 1), index.getX(i + 2));
+                addEdge(index.getX(i + 2), index.getX(i));
             }
         }
+    }
+
+    step(_deltaTime: number, mesh?: Mesh): void {
+        const dt = 18 / 1000;
+        const dtSq = dt * dt;
+
+        this.wind.update(dt);
+        this.wind.apply(this.state.particles, mesh);
 
         const gravity = new Vector3(0, -9.81, 0).multiplyScalar(0.1);
-
         const drag = 0.97;
-        for (const p of this.particles) {
+
+        for (const p of this.state.particles) {
             if (p.pinned) continue;
             p.acceleration.add(gravity);
-            const velocity = p.position.clone().sub(p.prevPosition);
-            velocity.multiplyScalar(drag);
+
+            const velocity = p.position.clone().sub(p.prevPosition).multiplyScalar(drag);
             const nextPos = p.position.clone().add(velocity).add(p.acceleration.multiplyScalar(dtSq));
+
             p.prevPosition.copy(p.position);
             p.position.copy(nextPos);
             p.acceleration.set(0, 0, 0);
         }
 
-        for (let i = 0; i < this.config.iterations; i++) {
-            ConstraintSolver.solve(this.particles, this.constraints);
-            CollisionSolver.solve(this.particles, this.collisionSpheres);
+        for (let i = 0; i < this.state.config.iterations; i++) {
+            ConstraintSolver.solve(this.state.particles, this.state.constraints);
+            this.collider.solve(this.state.particles);
         }
-    }
-
-    private calculateWind(now: number) {
-        const windStrength = Math.cos(now / 2.0) * 5 + 10;
-        this.windForce.set(Math.sin(now), Math.cos(now * 0.8), Math.sin(now * 0.5));
-        this.windForce.normalize().multiplyScalar(windStrength * 0.05);
     }
 
     syncToMesh(mesh: Mesh): void {
         const positions = mesh.geometry.attributes.position.array as Float32Array;
-        for (let i = 0; i < this.particles.length; i++) {
-            positions[i * 3] = this.particles[i].position.x;
-            positions[i * 3 + 1] = this.particles[i].position.y;
-            positions[i * 3 + 2] = this.particles[i].position.z;
+        for (let i = 0; i < this.state.particles.length; i++) {
+            const p = this.state.particles[i];
+            positions[i * 3] = p.position.x;
+            positions[i * 3 + 1] = p.position.y;
+            positions[i * 3 + 2] = p.position.z;
         }
         mesh.geometry.attributes.position.needsUpdate = true;
         mesh.geometry.computeVertexNormals();
     }
 
+    // Pass-through methods
     pinIndices(indices: number[]) {
-        indices.forEach(i => { if (this.particles[i]) this.particles[i].pinned = true; });
+        indices.forEach(i => { if (this.state.particles[i]) this.state.particles[i].pinned = true; });
     }
 
-    pinParticle(index: number, pos: Vector3): void {
-        if (this.particles[index]) {
-            this.particles[index].pinned = true;
-            this.particles[index].position.copy(pos);
+    pinParticle(index: number, pos: Vector3) {
+        if (this.state.particles[index]) {
+            this.state.particles[index].pinned = true;
+            this.state.particles[index].position.copy(pos);
         }
     }
 
-    releaseParticle(index: number): void {
-        if (this.particles[index]) this.particles[index].pinned = false;
+    releaseParticle(index: number) {
+        if (this.state.particles[index]) this.state.particles[index].pinned = false;
     }
 
-    applyForce(_i: number, _f: Vector3): void { }
-    dispose(): void {
-        this.particles = [];
-        this.constraints = [];
-        this.collisionSpheres = [];
-    }
+    applyForce(_i: number, _f: Vector3) { }
+    dispose() { this.state.reset(); }
+
+    // Legacy support for spheres if needed (empty now as we use BVH)
+    addCollisionSphere(_p: Vector3, _r: number) { }
+    updateSpherePosition(_i: number, _p: Vector3) { }
+    get collisionSpheres(): { position: Vector3, radius: number }[] { return []; }
+
+    public getParticles() {
+        return this.state.particles;
+      }
 }

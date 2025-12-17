@@ -35,25 +35,36 @@ export class SceneManager implements Disposable {
 
     async initialize(container: HTMLElement): Promise<void> {
         this.renderer.mount(container);
-        this.renderer.camera.position.set(0, 1.4, 2.5); // Eye level
-        this.controls.target.set(0, 1.0, 0);
-        this.controls.update();
         this.setupLights();
 
-        // 1. Load Assets
-        await AssetLoaderSystem.loadMannequin(this.renderer.scene);
-
         try {
+            const mannequinMesh = await AssetLoaderSystem.loadMannequin(this.renderer.scene);
             this.garmentMesh = await AssetLoaderSystem.loadShirt(this.renderer.scene);
 
-            // 2. Setup Physics
-            await this.physics.initialize(this.garmentMesh, { gravity: -9.81, iterations: 8 });
-            this.physicsSystem.setupColliders();
+            // FIX: Do not move scene. Instead, point camera at the mannequin's center.
+            if (mannequinMesh) {
+                // Calculate center of the collider
+                mannequinMesh.geometry.computeBoundingBox();
+                const center = new THREE.Vector3();
+                mannequinMesh.geometry.boundingBox?.getCenter(center);
 
-            // 3. Debugging (COMMENTED OUT TO HIDE RED SPHERES)
-            // this.debug.showColliders();
+                // Look at the chest/head area (Center Y + offset)
+                // If center.y is waist, we add ~0.5 to look at chest
+                const targetY = center.y + 0.4;
 
-            // 4. Setup Interaction
+                this.controls.target.set(center.x, targetY, center.z);
+                this.renderer.camera.position.set(center.x, targetY, center.z + 2.5);
+                this.controls.update();
+            }
+
+            await this.physics.initialize(this.garmentMesh, { gravity: -9.81, iterations: 3 });
+
+            if (mannequinMesh) {
+                console.log("Setting up collider on:", mannequinMesh.name);
+                this.physicsSystem.setBodyCollider(mannequinMesh);
+                this.debug.setupBVHDebug(mannequinMesh);
+            }
+
             this.interaction = new InteractionController(
                 this.renderer.renderer.domElement,
                 this.renderer.camera,
@@ -61,11 +72,11 @@ export class SceneManager implements Disposable {
                 this.physics
             );
         } catch (e) {
-            console.error("Simulation failed to start due to asset error.");
+            console.error("Simulation failed to start:", e);
         }
 
         this.startLoop();
-      }
+    }
 
     private setupLights() {
         const ambient = new THREE.AmbientLight(0xffffff, 0.6);
@@ -82,6 +93,7 @@ export class SceneManager implements Disposable {
             this.perf.update();
             this.controls.update();
             this.physicsSystem.update(dt, this.garmentMesh);
+            this.debug.update();
 
             this.renderer.renderer.render(this.renderer.scene, this.renderer.camera);
         };

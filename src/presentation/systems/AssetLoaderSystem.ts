@@ -3,35 +3,49 @@ import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUti
 import { assetManager } from '../AssetManager';
 
 export class AssetLoaderSystem {
-    static async loadMannequin(scene: THREE.Scene) {
+    // REMOVED: centerScene method (It causes physics desync)
+
+    static async loadMannequin(scene: THREE.Scene): Promise<THREE.Mesh | null> {
         try {
             const gltf = await assetManager.loadGLTF('/mannequin.glb');
             const model = gltf.scene;
 
-            // 1. Calculate Bounding Box
-            const box = new THREE.Box3().setFromObject(model);
-            const size = box.getSize(new THREE.Vector3());
-            const center = box.getCenter(new THREE.Vector3());
+            // Trust Blender's coordinates. Do not move.
+            model.position.set(0, 0, 0);
 
-            // 2. Center X/Z, but put Feet (min Y) at 0
-            model.position.x += (model.position.x - center.x);
-            model.position.z += (model.position.z - center.z);
-            model.position.y = -box.min.y;
+            const geometries: THREE.BufferGeometry[] = [];
 
             model.traverse((child: any) => {
                 if (child.isMesh) {
-                    child.castShadow = true;
-                    child.receiveShadow = true;
-                    child.material = new THREE.MeshStandardMaterial({
+                    const mesh = child as THREE.Mesh;
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    mesh.material = new THREE.MeshStandardMaterial({
                         color: 0xeeeeee, roughness: 0.5, metalness: 0.1
                     });
+
+                    // Bake transforms into geometry for the collider
+                    const geo = mesh.geometry.clone();
+                    geo.applyMatrix4(mesh.matrixWorld);
+                    geometries.push(geo);
                 }
             });
+
             scene.add(model);
-            console.log("Mannequin loaded and aligned to floor");
-            return model;
+
+            // Merge all parts into one physics collider
+            if (geometries.length > 0) {
+                const mergedGeo = BufferGeometryUtils.mergeGeometries(geometries);
+                const colliderMesh = new THREE.Mesh(mergedGeo);
+                colliderMesh.name = "Merged_Mannequin_Collider";
+                return colliderMesh;
+            } else {
+                return null;
+            }
+
         } catch (e) {
             console.error("Error loading mannequin:", e);
+            return null;
         }
     }
 
@@ -42,18 +56,11 @@ export class AssetLoaderSystem {
 
             if (!loadedMesh) throw new Error("No mesh found in shirt.glb");
 
-            console.log("Shirt Mesh Found:", loadedMesh.name);
-
             let geo = loadedMesh.geometry.clone();
             geo.deleteAttribute('uv');
             geo.deleteAttribute('normal');
             geo = BufferGeometryUtils.mergeVertices(geo, 0.01);
             geo.computeVertexNormals();
-
-            // We trust Blender's alignment relative to the mannequin
-            // Since we re-centered the mannequin, we might need to nudge the shirt
-            // if it was exported relative to the mannequin's original center.
-            // For now, we trust 0,0,0.
 
             const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
                 color: 0x44aa88,
@@ -63,8 +70,9 @@ export class AssetLoaderSystem {
 
             mesh.castShadow = true;
             mesh.receiveShadow = true;
-            scene.add(mesh);
+            mesh.position.set(0, 0, 0);
 
+            scene.add(mesh);
             return mesh;
         } catch (e) {
             console.error("Error loading shirt:", e);
