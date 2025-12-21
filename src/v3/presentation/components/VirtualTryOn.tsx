@@ -5,10 +5,10 @@ import { useMemo } from 'react';
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { useClothEngine } from '../../adapter/useClothEngine';
+import { useInteraction } from '../../adapter/useInteraction';
 import { PHYSICS_CONSTANTS } from '../../shared/constants';
 
 // Helper to safely extract the first mesh from a GLTF scene
-// This prevents TypeScript "type never" errors inside useMemo closures
 function findFirstMesh(scene: THREE.Group | THREE.Scene | THREE.Object3D): THREE.Mesh | null {
     let mesh: THREE.Mesh | null = null;
     scene.traverse((child) => {
@@ -20,16 +20,17 @@ function findFirstMesh(scene: THREE.Group | THREE.Scene | THREE.Object3D): THREE
 }
 
 export const VirtualTryOn = () => {
+    // 1. Load Assets
     const mannequinGLTF = useGLTF('/mannequin.glb');
     const proxyGLTF = useGLTF('/shirt_proxy.glb');
     const visualGLTF = useGLTF('/shirt_visual.glb');
 
-    // 1. Extract Mannequin Mesh (for Mesh Collision)
+    // 2. Extract Mannequin Mesh (for Mesh Collision)
     const mannequinMesh = useMemo(() => {
         return findFirstMesh(mannequinGLTF.scene);
     }, [mannequinGLTF]);
 
-    // 2. Extract and WELD the Proxy Mesh
+    // 3. Extract and WELD the Proxy Mesh (Physics Source)
     const proxy = useMemo(() => {
         const rawMesh = findFirstMesh(proxyGLTF.scene);
         if (!rawMesh) return null;
@@ -43,8 +44,9 @@ export const VirtualTryOn = () => {
         if (geometry.attributes.uv) geometry.deleteAttribute('uv');
 
         // Weld vertices within 1mm tolerance to create a single connected cloth sheet
+        // This prevents the "Disintegration" issue
         const weldedGeo = BufferGeometryUtils.mergeVertices(geometry, 0.001);
-        weldedGeo.computeVertexNormals(); // Re-add normals just for visual debugging
+        weldedGeo.computeVertexNormals();
 
         // Create a new mesh with the welded geometry
         const mesh = new THREE.Mesh(weldedGeo, rawMesh.material);
@@ -54,32 +56,50 @@ export const VirtualTryOn = () => {
         mesh.scale.copy(rawMesh.scale);
         mesh.quaternion.copy(rawMesh.quaternion);
 
-        // Ensure the matrix is updated for the physics engine to read correct world positions
+        // Ensure the matrix is updated for the physics engine
         mesh.updateMatrixWorld(true);
 
         return mesh;
     }, [proxyGLTF]);
 
-    // 3. Extract Visual Mesh
+    // 4. Extract Visual Mesh (Render Target)
     const visual = useMemo(() => {
         return findFirstMesh(visualGLTF.scene);
     }, [visualGLTF]);
 
-    // 4. Initialize Physics Engine
-    useClothEngine(proxy, visual, mannequinMesh);
+    // 5. Initialize Physics Engine
+    // Returns the engine instance so we can pass it to the interaction handler
+    const { engine } = useClothEngine(proxy, visual, mannequinMesh);
+
+    // 6. Initialize Interaction (Mouse Grab)
+    useInteraction(engine, visual);
 
     return (
         <group>
-            {/* Mannequin */}
+            {/* 1. Mannequin (Static Collider) */}
             <primitive object={mannequinGLTF.scene} />
 
-            {/* Visual Shirt */}
-            <primitive object={visualGLTF.scene} />
+            {/* 2. Visual Shirt (High Poly, Skinned) */}
+            {/* This is the main render. It moves because useClothEngine updates its vertices. */}
+            <primitive object={visualGLTF.scene}>
+                <meshStandardMaterial
+                    color="#4488ff"
+                    roughness={0.6}
+                    side={THREE.DoubleSide}
+                />
+            </primitive>
 
-            {/* Debug: Proxy Shirt (Yellow) */}
+            {/* 3. Debug: Proxy Shirt (Low Poly Physics) */}
+            {/* ONLY render if showProxy is true */}
             {PHYSICS_CONSTANTS.debug.showProxy && (
                 <primitive object={proxyGLTF.scene}>
-                    <meshBasicMaterial color="yellow" wireframe depthTest={false} />
+                    <meshBasicMaterial
+                        color="yellow"
+                        wireframe
+                        transparent
+                        opacity={0.5}
+                        depthTest={false}
+                    />
                 </primitive>
             )}
         </group>
