@@ -1,0 +1,99 @@
+.
+├── .DS_Store
+├── .gitignore
+├── README.md
+├── capsule.json
+├── eslint.config.js
+├── index.html
+├── package-lock.json
+├── package.json
+├── public
+│   ├── .DS_Store
+│   ├── mannequin.glb
+│   ├── shirt_proxy.glb
+│   ├── shirt_visual.glb
+│   └── vite.svg
+├── src
+│   ├── .DS_Store
+│   ├── App.css
+│   ├── App.tsx
+│   ├── assets
+│   │   ├── models
+│   │   └── react.svg
+│   ├── index.css
+│   ├── legacy
+│   │   ├── application
+│   │   │   └── Viewer.tsx
+│   │   ├── infrastructure
+│   │   │   ├── PerformanceMonitor.ts
+│   │   │   └── config.ts
+│   │   ├── presentation
+│   │   │   ├── AssetManager.ts
+│   │   │   ├── BodyManager.ts
+│   │   │   ├── InteractionController.ts
+│   │   │   ├── SceneManager.ts
+│   │   │   ├── factories
+│   │   │   │   └── ClothFactory.ts
+│   │   │   └── systems
+│   │   │       ├── AssetLoaderSystem.ts
+│   │   │       ├── DebugSystem.ts
+│   │   │       ├── PhysicsSystem.ts
+│   │   │       └── RendererSystem.ts
+│   │   ├── simulation
+│   │   │   ├── IPhysicsEngine.ts
+│   │   │   ├── PhysicsState.ts
+│   │   │   ├── VerletPhysicsEngine.ts
+│   │   │   ├── forces
+│   │   │   │   └── WindForce.ts
+│   │   │   ├── solvers
+│   │   │   │   ├── BVHCollider.ts
+│   │   │   │   ├── CollisionSolver.ts
+│   │   │   │   └── ConstraintSolver.ts
+│   │   │   ├── types.ts
+│   │   │   └── utils
+│   │   │       └── Adjacency.ts
+│   │   └── types
+│   │       └── index.ts
+│   ├── main.tsx
+│   └── v2
+│       ├── AppV2.tsx
+│       ├── components
+│       │   ├── avatar
+│       │   │   └── Mannequin.tsx
+│       │   ├── canvas
+│       │   │   └── Scene.tsx
+│       │   ├── debug
+│       │   │   ├── CollisionDebugger.tsx
+│       │   │   ├── PhysicsVisualizer.tsx
+│       │   │   └── VelocityVisualizer.tsx
+│       │   ├── garment
+│       │   │   ├── GarmentVisualizer.tsx
+│       │   │   └── Shirt.tsx
+│       │   └── ui
+│       │       ├── ControlPanel.tsx
+│       │       ├── DebugPanel.tsx
+│       │       └── MaterialSelector.tsx
+│       ├── config
+│       │   ├── debug.config.ts
+│       │   └── physics.config.ts
+│       ├── hooks
+│       │   ├── useGarmentInteraction.ts
+│       │   ├── useGarmentLoader.ts
+│       │   ├── useGarmentPhysics.ts
+│       │   ├── usePhysicsDebug.ts
+│       │   └── useSettlingForce.ts
+│       ├── types
+│       │   ├── garment.types.ts
+│       │   └── physics.types.ts
+│       └── utils
+│           ├── geometry.ts
+│           ├── materials.ts
+│           ├── skinning.ts
+│           └── validation.ts
+├── structure.txt
+├── tsconfig.app.json
+├── tsconfig.json
+├── tsconfig.node.json
+└── vite.config.ts
+
+27 directories, 70 files
