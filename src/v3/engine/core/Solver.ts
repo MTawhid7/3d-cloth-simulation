@@ -32,7 +32,7 @@ export class Solver {
             this.distanceConstraints.solve(this.data, structuralAlpha);
 
             // 2. Bending (Softer)
-            const bendingAlpha = (PHYSICS_CONSTANTS.compliance * 100) / (sdt * sdt);
+            const bendingAlpha = (PHYSICS_CONSTANTS.compliance * PHYSICS_CONSTANTS.bendingMultiplier) / (sdt * sdt);
             this.bendingConstraints.solve(this.data, bendingAlpha);
 
             // 3. Collision

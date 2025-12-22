@@ -77,6 +77,11 @@ export function useClothEngine(
         visualPos.needsUpdate = true;
         visualMesh.geometry.computeVertexNormals();
 
+        // --- FIX: Update Bounding Sphere for Raycasting ---
+        // This ensures interaction works even if the shirt falls to the floor
+        visualMesh.geometry.computeBoundingSphere();
+        visualMesh.geometry.computeBoundingBox();
+
         // Debug: Update Proxy
         if (PHYSICS_CONSTANTS.debug.showProxy) {
             engine.data.syncToMesh(proxyMesh);

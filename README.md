@@ -1,47 +1,44 @@
-# 3D Garment Visualization Engine (V2)
+# 3D Garment Visualization Engine (V3)
 
-A high-performance, web-based 3D virtual try-on (VTO) engine built with **React Three Fiber**, **Rapier (WASM)**, and a custom **Skinning Pipeline**.
+![Status](https://img.shields.io/badge/Status-Stable-success) ![Tech](https://img.shields.io/badge/Tech-React_Three_Fiber_%7C_XPBD-blue) ![Physics](https://img.shields.io/badge/Physics-Custom_Solver-orange)
 
-This project demonstrates a scalable architecture for simulating high-fidelity cloth on the web without the performance penalties of traditional soft-body physics engines.
+A high-performance, web-based Virtual Try-On (VTO) engine. This project simulates realistic fabric draping, stretching, and interaction in real-time using a custom **Extended Position Based Dynamics (XPBD)** solver, running entirely in the browser.
 
 ---
 
 ## 🎯 Project Objective
 
-To create an industrial-grade "Virtual Fitting Room" that allows users to:
+To achieve "Industrial Grade" cloth simulation on the web without the performance overhead of heavy gaming engines. The goal is a **Virtual Fitting Room** where users can:
 
-1. **Visualize** garments (Cotton, Denim, Silk) on a 3D mannequin.
-2. **Interact** with the fabric (grab, pull, drape) in real-time.
-3. **Scale** to millions of users by running entirely client-side (no expensive cloud GPU streaming).
+1. **Visualize** garments with high-fidelity rendering (wrinkles, thickness).
+2. **Interact** physically (grab, pull, stretch, throw).
+3. **Assess Fit** (Tight vs. Oversized) based on physical tension.
 
 ---
 
 ## 🏗️ Architecture: The "Two-Mesh" Strategy
 
-Real-time cloth simulation faces a dilemma: **Visuals need high resolution** (smooth folds), but **Physics needs low resolution** (stability). Simulating a high-poly shirt directly causes "jitter," "explosions," and low FPS.
-
-We solved this using a **Proxy-Drive System**:
+Real-time cloth simulation faces a dilemma: **Visuals need high resolution** (smooth folds), but **Physics needs low resolution** (stability). We solved this using a decoupled architecture:
 
 ### 1. The Physics Proxy (Invisible)
 
-* **Mesh:** A decimated, low-poly cage (~500 vertices).
-* **Engine:** **Rapier.rs** (Rust/WASM).
-* **Method:** We treat the cloth as a grid of **Rigid Bodies** connected by **Impulse Joints** (Springs).
-* **Role:** Handles collision against the mannequin, gravity, and wind. It is fast and stable because the particle count is low.
+* **Mesh:** A low-poly, uniform triangulation (~1,000 vertices).
+* **Role:** Calculates constraints, gravity, and collision.
+* **Solver:** Custom **XPBD (TypeScript)**. It solves distance and bending constraints to simulate stiffness and structural integrity.
+* **Collision:** Uses **MeshBVH** to collide against the actual Mannequin geometry, allowing for precise draping over complex shapes (shoulders, chest).
 
 ### 2. The Visual Mesh (Visible)
 
-* **Mesh:** High-quality geometry (~5,000+ vertices) with smooth normals and UVs.
-* **Engine:** **Three.js** (GPU Rendering).
-* **Role:** Purely aesthetic. It does *not* run physics.
+* **Mesh:** High-quality geometry (~15,000+ vertices) with modeled thickness (extruded hems) and smooth normals.
+* **Role:** Pure rendering. It does *not* run physics calculations.
 
 ### 3. The Skinning Bridge
 
-We implemented a custom **Barycentric Mapping System**:
+We map the high-res visual mesh to the low-res physics mesh using **Barycentric Interpolation**:
 
-1. **Initialization:** We map every vertex of the *Visual Mesh* to the nearest triangle on the *Physics Proxy*.
-2. **Runtime:** As the Proxy moves and deforms, we interpolate the position of the Visual vertices based on their barycentric weights.
-3. **Result:** The user sees a high-quality smooth shirt that moves realistically, driven by a hidden low-poly simulation.
+1. **Init:** Every visual vertex is mapped to the nearest triangle on the physics proxy.
+2. **Update:** As the proxy deforms, the visual vertices move relative to their parent triangle's barycentric weights.
+3. **Result:** Smooth, high-quality cloth that moves realistically, driven by a fast, stable simulation.
 
 ---
 
@@ -49,34 +46,34 @@ We implemented a custom **Barycentric Mapping System**:
 
 | Component | Technology | Rationale |
 | :--- | :--- | :--- |
-| **Rendering** | **React Three Fiber (R3F)** | Declarative 3D scene management; industry standard for React. |
-| **Physics** | **Rapier (WASM)** | Modern, actively maintained, and significantly faster than Ammo.js. |
-| **State** | **Zustand** | Transient state management for high-frequency updates without re-renders. |
-| **Collision** | **Trimesh / BVH** | Accurate mesh-on-mesh collision detection. |
-| **Debug** | **Visulizers** | Custom tools for visualizing velocity, collisions, and physics bodies in real-time. |
+| **Framework** | **React Three Fiber** | Declarative 3D scene management. |
+| **Physics** | **Custom XPBD (TS)** | Deterministic, stable constraints. Replaced Rapier (Rigid Bodies) for better cloth behavior. |
+| **Collision** | **three-mesh-bvh** | Accelerated raycasting for accurate mesh-on-mesh collision. |
+| **State** | **React Refs / Mutable** | Direct manipulation of `Float32Array` for zero-garbage-collection loops. |
 | **Pipeline** | **Blender** | Custom asset preparation (Decimation, Welding, Origin Reset). |
 
 ---
 
-## 📉 Current Status (Phase 2 - Realism & Tuning)
+## 📜 The Evolution (Lessons Learned)
 
-**✅ Completed:**
+### ❌ V1: Verlet Integration
 
-* **Engine Migration:** Successfully moved from custom Verlet (JS) to Rapier (WASM).
-* **Asset Pipeline:** Established a workflow to clean, weld, and export GLB assets from Blender.
-* **Collision:** The shirt collides with the mannequin using Trimesh colliders.
-* **Self-Collision Fix:** Implemented Collision Groups to prevent the "inflated balloon" effect.
-* **Skinning Logic:** The barycentric interpolation math is implemented.
-* **Debug Suite:** Added comprehensive visualizers for physics debugging:
-  * `CollisionDebugger`: Visualizes active contact points.
-  * `PhysicsVisualizer`: Shows the underlying rigid bodies and colliders.
-  * `VelocityVisualizer`: Color-coded velocity tracking for stability analysis.
+* **Approach:** Basic $F=ma$ particle system.
+* **Failure:** Cloth felt like rubber. Super stretchy and unstable.
 
-**⚠️ Known Issues / In Progress:**
+### ❌ V2: Rapier (Rigid Body Grid)
 
-* **Physics Tuning:** Fine-tuning `physics.config.ts` to reduce jitter and improve "settling" behavior.
-* **Interaction:** Improving the mouse grab sensation (currently kinematic coupling) to feel more "elastic".
-* **Visual Artifacts:** Occasional clipping where the proxy mesh might protrude if parameters aren't tuned correctly.
+* **Approach:** 1,000 spheres connected by Impulse Joints.
+* **Failure:** "Jittering." Rigid bodies fight each other when packed tightly. The shirt looked like it was vibrating. Interaction felt disconnected (kinematic). Colliders allowed tunneling.
+
+### ✅ V3: XPBD (Current)
+
+* **Approach:** Constraint Projection. We enforce rules ("Edge A must be length L") rather than forces.
+* **Success:**
+  * **Unconditional Stability:** The simulation cannot explode.
+  * **Realism:** Bending constraints prevent the "crumpled paper" look.
+  * **Interaction:** "Kinematic Grabbing" allows users to throw the fabric.
+  * **Safety:** Added clamps to reset vertices if they exceed world bounds.
 
 ---
 
@@ -84,49 +81,74 @@ We implemented a custom **Barycentric Mapping System**:
 
 ```text
 src/
-├── v2/
-│   ├── components/
-│   │   ├── avatar/       # Mannequin (Static Collider)
-│   │   ├── garment/      # Shirt.tsx (The Simulation Core)
-│   │   ├── debug/        # Visualizers (Collision, Velocity, Physics)
-│   │   ├── ui/           # User Interface controls
-│   │   └── canvas/       # Scene Setup (Lights, Camera)
-│   ├── config/           # Physics configuration parameters
-│   ├── hooks/
-│   │   ├── useGarmentPhysics.ts  # Rapier Body/Joint creation & Logic
-│   │   ├── useGarmentLoader.ts   # Asset loading & Welding logic
-│   │   └── useGarmentInteraction.ts # Mouse Drag logic
-│   ├── types/            # TypeScript definitions
+├── v3/
+│   ├── adapter/
+│   │   ├── useClothEngine.ts   # The Bridge: Connects React state to the Physics Loop
+│   │   └── useInteraction.ts   # Mouse/Touch logic (Raycasting & Kinematic Grabs)
+│   ├── engine/
+│   │   ├── core/
+│   │   │   ├── PhysicsData.ts  # Manages Float32Arrays (Positions, Velocities)
+│   │   │   └── Solver.ts       # The Heart: Integration -> Constraints -> Collision
+│   │   ├── constraints/
+│   │   │   ├── DistanceConstraint.ts # Structural integrity (Stretching)
+│   │   │   └── BendingConstraint.ts  # Stiffness (Folding)
+│   │   └── MannequinCollider.ts      # MeshBVH wrapper for body collision
+│   ├── presentation/
+│   │   └── components/
+│   │       └── VirtualTryOn.tsx # Loads assets, welds geometry, renders scene
+│   ├── shared/
+│   │   └── constants.ts        # Tuning knobs (Gravity, Compliance, Drag)
 │   └── utils/
-│       ├── geometry.ts   # Mesh processing (Welding)
-│       └── skinning.ts   # Barycentric mapping math
-├── legacy/               # Archived V1 (Verlet) engine
-└── App.tsx               # Entry point
+│       └── skinning.ts         # Barycentric mapping logic
+└── App.tsx                     # Entry point
 ```
 
 ---
 
-## 📝 Asset Requirements (Blender)
+## 📝 Asset Requirements (Blender Pipeline)
 
-For the simulation to work, assets must be prepared strictly:
+For the simulation to work, assets must be prepared strictly following this pipeline.
 
-1. **Topology:** Uniform triangles (no long thin slivers).
-2. **Watertight:** No holes. Front and back panels must be merged (`Merge by Distance`).
-3. **Scale:** Applied to `1.0`.
-4. **Origin:** Centered at `(0,0,0)` at the feet of the mannequin.
-5. **Proxy Generation:**
-    * Duplicate the shirt.
-    * Apply **Decimate Modifier** (Ratio ~0.1) to get <800 vertices.
-    * Apply **Shrink/Fatten** to puff it out by 2mm (encapsulating the visual mesh).
+### 1. Global Alignment
+
+* **Origin:** The Mannequin and Shirt **MUST** have their Origin Point at `(0,0,0)` (between the feet).
+* **Scale:** Apply all transforms (`Ctrl+A` -> All Transforms). Scale must be `1.0`.
+
+### 2. The Proxy Mesh (`shirt_proxy.glb`)
+
+* **Source:** Duplicate the visual shirt.
+* **Clean:** Remove thickness/hems. It must be a single-layer sheet.
+* **Weld:** Use `Merge by Distance` to ensure seams are connected.
+* **Topology:** Use **Decimate (Collapse)** to ~1,200 faces, then **Triangulate**, then **Beautify Faces** (Alt+Shift+F) to make triangles uniform.
+* **Cage:** Use `Alt+S` (Shrink/Fatten) to puff it out by **2mm** (so it encapsulates the visual mesh).
+
+### 3. The Visual Mesh (`shirt_visual.glb`)
+
+* **Detail:** ~15,000 faces.
+* **Thickness:** Extrude the hems/collar inward to create the illusion of volume.
+* **Placement:** Must sit *inside* the Proxy mesh.
+
+---
+
+## 🎛️ Tuning Physics (`constants.ts`)
+
+You can define the material properties in `src/v3/shared/constants.ts`.
+
+| Variable | Value | Effect |
+| :--- | :--- | :--- |
+| `compliance` | `0.000` - `0.01` | **Inverse Stiffness.** 0 = Steel, 0.001 = Denim, 0.01 = Spandex. |
+| `drag` | `0.90` - `0.99` | **Air Resistance.** Lower = Heavy/Underwater. Higher = Float/Silk. |
+| `friction` | `0.0` - `1.0` | **Stickiness.** 0 = Ice, 1.0 = Glue. Controls slipping off shoulders. |
+| `substeps` | `5` - `10` | **Quality.** Higher = Stiffer, more stable collision, higher CPU cost. |
 
 ---
 
 ## 🔮 Future Roadmap
 
-1. **Realism Tuning:** Deep dive into `physics.config.ts` to achieve fabric-specific behaviors (Cotton vs. Silk).
-2. **Interaction Polish:** Replace the kinematic mouse grab with a "Mouse Spring" for elastic pulling.
-3. **Performance Optimization:** Explore WebWorkers for the physics loop to ensure 60 FPS under heavier loads.
-4. **UI Enhancement:** Add controls to tweak physics parameters in real-time for easier debugging.
+1. **Self-Collision:** Currently, the shirt can pass through itself. We need to implement **Spatial Hashing** to prevent this.
+2. **WASM Optimization:** Move the `Solver.ts` loop to **Rust/WebAssembly** for a 10x performance boost.
+3. **Wind Simulation:** Add aerodynamic drag forces based on triangle normals.
+4. **Fit Analysis:** Visualize tension maps (Red = Tight, Green = Loose) on the visual mesh.
 
 ---
 
@@ -135,8 +157,8 @@ For the simulation to work, assets must be prepared strictly:
 1. **Clone:**
 
     ```bash
-    git clone [repo-url]
-    cd garment-viewer
+    git clone https://github.com/MTawhid7/3d-cloth-simulation.git
+    cd 3d-cloth-simulation
     ```
 
 2. **Install:**
