@@ -1,9 +1,13 @@
-// src/v4/adapter/useClothWorker.ts
 import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { createSharedBuffers, type SharedBuffers } from '../shared/SharedMemory';
-import { computeSkinning, type SkinningData } from '../../v3/utils/skinning';
+import { acceleratedRaycast } from 'three-mesh-bvh';
+import { createSharedBuffers, type SharedBuffers } from '../../shared/SharedMemory';
+import { computeSkinning, type SkinningData } from '../../../v3/utils/skinning';
+import { GeometryPreprocessor } from '../../engine/utils/GeometryPreprocessor';
+
+// Enable BVH on Three.js meshes
+(THREE.Mesh.prototype as any).raycast = acceleratedRaycast;
 
 export function useClothWorker(
     proxyMesh: THREE.Mesh | null,
@@ -14,60 +18,49 @@ export function useClothWorker(
     const sharedBuffersRef = useRef<SharedBuffers | null>(null);
     const skinningRef = useRef<SkinningData | null>(null);
 
-    // One-time Initialization
     useEffect(() => {
         if (!proxyMesh || !visualMesh || !mannequinMesh) return;
         if (workerRef.current) return;
 
         console.log('[Adapter V4] Initializing Physics Worker...');
 
-        // 1. Prepare Data
+        // 1. Setup Data
         const pGeo = proxyMesh.geometry;
         const vertexCount = pGeo.attributes.position.count;
         const indices = pGeo.index!.array as Int32Array;
 
-        // 2. Setup Shared Memory
+        // 2. Create Shared Memory
         const { buffer, views } = createSharedBuffers(vertexCount);
         sharedBuffersRef.current = views;
 
-        // 3. Copy Initial Positions to Shared Buffer
-        const initialPos = pGeo.attributes.position.array;
-        views.positions.set(initialPos);
-        views.prevPositions.set(initialPos);
+        // 3. Pre-process Geometry (Project & Pin)
+        // This modifies 'views' in-place
+        GeometryPreprocessor.process(pGeo, mannequinMesh.geometry, views);
 
-        // 4. Initialize Pinning (Simple >1.4m height check)
-        for (let i = 0; i < vertexCount; i++) {
-            if (initialPos[i * 3 + 1] > 1.4) {
-                views.invMass[i] = 0;
-            } else {
-                views.invMass[i] = 1;
-            }
-        }
-
-        // 5. Prepare Mannequin Data
+        // 4. Prepare Mannequin Data for Worker
         const mGeo = mannequinMesh.geometry;
-        const mPos = mGeo.attributes.position.array.slice(0);
-        const mInd = mGeo.index ? mGeo.index.array.slice(0) : new Int32Array(0);
+        const mPosArray = mGeo.attributes.position.array.slice(0);
+        const mIndArray = mGeo.index ? mGeo.index.array.slice(0) : new Int32Array(0);
 
-        // 6. Spawn Worker
-        const worker = new Worker(new URL('../engine/workers/physics.worker.ts', import.meta.url), {
+        // 5. Spawn Worker
+        const worker = new Worker(new URL('../../engine/workers/physics.worker.ts', import.meta.url), {
             type: 'module'
         });
 
         worker.postMessage({
             type: 'INIT',
             payload: {
-                buffer, // The SharedArrayBuffer
+                buffer,
                 vertexCount,
                 indices,
-                mannequinPositions: mPos,
-                mannequinIndices: mInd
+                mannequinPositions: mPosArray,
+                mannequinIndices: mIndArray
             }
         });
 
         workerRef.current = worker;
 
-        // 7. Compute Skinning
+        // 6. Compute Skinning
         skinningRef.current = computeSkinning(visualMesh, proxyMesh);
 
         return () => {
@@ -77,14 +70,13 @@ export function useClothWorker(
 
     }, [proxyMesh, visualMesh, mannequinMesh]);
 
-    // Render Loop (Reads from Shared Buffer)
+    // Render Loop (Sync Physics -> Visual)
     useFrame(() => {
         const views = sharedBuffersRef.current;
         const skinning = skinningRef.current;
 
         if (!views || !visualMesh || !skinning || !proxyMesh) return;
 
-        // B. Skinning Update (Visual Mesh)
         const visualPos = visualMesh.geometry.attributes.position;
         const physicsPos = views.positions;
         const physicsIndex = proxyMesh.geometry.index!;
@@ -110,6 +102,7 @@ export function useClothWorker(
         visualPos.needsUpdate = true;
         visualMesh.geometry.computeVertexNormals();
         visualMesh.geometry.computeBoundingSphere();
+        visualMesh.geometry.computeBoundingBox();
     });
 
     return { worker: workerRef.current, buffers: sharedBuffersRef.current };

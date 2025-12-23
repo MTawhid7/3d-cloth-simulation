@@ -90,37 +90,60 @@
 │   │   └── react.svg
 │   ├── index.css
 │   ├── main.tsx
-│   └── v3
-│       ├── AppV3.tsx
+│   ├── v3
+│   │   ├── AppV3.tsx
+│   │   ├── adapter
+│   │   │   ├── useClothEngine.ts
+│   │   │   └── useInteraction.ts
+│   │   ├── data
+│   │   │   └── collider.json
+│   │   ├── engine
+│   │   │   ├── MannequinCollider.ts
+│   │   │   ├── XPBD.ts
+│   │   │   ├── constraints
+│   │   │   │   ├── BendingConstraint.ts
+│   │   │   │   └── DistanceConstraint.ts
+│   │   │   └── core
+│   │   │       ├── PhysicsData.ts
+│   │   │       └── Solver.ts
+│   │   ├── presentation
+│   │   │   ├── SceneV3.tsx
+│   │   │   ├── components
+│   │   │   │   ├── DebugOverlay.tsx
+│   │   │   │   └── VirtualTryOn.tsx
+│   │   │   └── ui
+│   │   ├── shared
+│   │   │   ├── constants.ts
+│   │   │   └── types.ts
+│   │   └── utils
+│   │       └── skinning.ts
+│   └── v4
 │       ├── adapter
-│       │   ├── useClothEngine.ts
-│       │   └── useInteraction.ts
-│       ├── data
-│       │   └── collider.json
+│       │   └── bridge
+│       │       ├── useClothWorker.ts
+│       │       └── useInteractionV4.ts
 │       ├── engine
-│       │   ├── MannequinCollider.ts
-│       │   ├── XPBD.ts
-│       │   ├── constraints
-│       │   │   ├── BendingConstraint.ts
-│       │   │   └── DistanceConstraint.ts
-│       │   └── core
-│       │       ├── PhysicsData.ts
-│       │       └── Solver.ts
+│       │   ├── core
+│       │   │   ├── XPBD_Worker.ts
+│       │   │   └── modules
+│       │   │       ├── CollisionSystem.ts
+│       │   │       ├── ConstraintSystem.ts
+│       │   │       └── InteractionSystem.ts
+│       │   ├── utils
+│       │   │   └── GeometryPreprocessor.ts
+│       │   └── workers
+│       │       └── physics.worker.ts
 │       ├── presentation
-│       │   ├── SceneV3.tsx
-│       │   ├── components
-│       │   │   ├── DebugOverlay.tsx
-│       │   │   └── VirtualTryOn.tsx
-│       │   └── ui
-│       ├── shared
-│       │   ├── constants.ts
-│       │   └── types.ts
-│       └── utils
-│           └── skinning.ts
+│       │   ├── SceneV4.tsx
+│       │   └── components
+│       │       └── VirtualTryOnV4.tsx
+│       └── shared
+│           ├── SharedMemory.ts
+│           └── constants.ts
 ├── structure.txt
 ├── tsconfig.app.json
 ├── tsconfig.json
 ├── tsconfig.node.json
 └── vite.config.ts
 
-39 directories, 85 files
+50 directories, 97 files
