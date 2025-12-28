@@ -1,3 +1,4 @@
+// src/v3/adapter/useClothEngine.ts
 import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -17,16 +18,13 @@ export function useClothEngine(
     useEffect(() => {
         if (!proxyMesh || !visualMesh || !mannequinMesh || initialized.current) return;
 
-        // Reset containers to 0,0,0 just in case
-        proxyMesh.position.set(0, 0, 0);
-        visualMesh.position.set(0, 0, 0);
-        mannequinMesh.position.set(0, 0, 0);
+        console.log('[Adapter] Initializing Physics Engine V3...');
 
-        console.log('[Adapter] Initializing Solver...');
+        // Initialize Solver
         const engine = new Solver(proxyMesh, mannequinMesh);
         engineRef.current = engine;
 
-        console.log('[Adapter] Computing Skinning Weights...');
+        // Initialize Skinning
         skinningRef.current = computeSkinning(visualMesh, proxyMesh);
 
         initialized.current = true;
@@ -39,11 +37,13 @@ export function useClothEngine(
 
         if (!engine || !proxyMesh || !visualMesh || !skinning) return;
 
-        // Clamp delta to prevent explosion
+        // Safety Clamp for Delta Time
         const dt = Math.min(delta, 0.032);
+
+        // Step Physics
         engine.update(dt);
 
-        // Update Visual Mesh
+        // Update Visual Mesh (Skinning)
         const visualPos = visualMesh.geometry.attributes.position;
         const proxyPos = engine.data.positions;
         const physicsIndex = proxyMesh.geometry.index!;
@@ -77,12 +77,10 @@ export function useClothEngine(
         visualPos.needsUpdate = true;
         visualMesh.geometry.computeVertexNormals();
 
-        // --- FIX: Update Bounding Sphere for Raycasting ---
-        // This ensures interaction works even if the shirt falls to the floor
+        // Update bounds for raycasting
         visualMesh.geometry.computeBoundingSphere();
-        visualMesh.geometry.computeBoundingBox();
 
-        // Debug: Update Proxy
+        // Debug Sync
         if (PHYSICS_CONSTANTS.debug.showProxy) {
             engine.data.syncToMesh(proxyMesh);
         }

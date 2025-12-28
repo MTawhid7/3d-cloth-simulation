@@ -1,6 +1,6 @@
 # 3D Garment Visualization Engine (V3)
 
-![Status](https://img.shields.io/badge/Status-Stable-success) ![Tech](https://img.shields.io/badge/Tech-React_Three_Fiber_%7C_XPBD-blue) ![Physics](https://img.shields.io/badge/Physics-Custom_Solver-orange)
+![Status](https://img.shields.io/badge/Status-Active_Development-yellow) ![Tech](https://img.shields.io/badge/Tech-React_Three_Fiber_%7C_XPBD-blue) ![Physics](https://img.shields.io/badge/Physics-Custom_Solver-orange)
 
 A high-performance, web-based Virtual Try-On (VTO) engine. This project simulates realistic fabric draping, stretching, and interaction in real-time using a custom **Extended Position Based Dynamics (XPBD)** solver, running entirely in the browser.
 
@@ -54,6 +54,46 @@ We map the high-res visual mesh to the low-res physics mesh using **Barycentric 
 
 ---
 
+## 🔬 Collision Detection System
+
+The engine uses a multi-layered collision approach to prevent cloth penetration:
+
+### Cloth-Body Collision (MannequinCollider)
+
+Two-phase detection using **three-mesh-bvh**:
+
+1. **CCD (Continuous Collision Detection):** Raycasts along each particle's trajectory to detect tunneling before it happens. This prevents fast-moving particles from passing through the body mesh.
+
+2. **Discrete Collision:** Uses `closestPointToPoint()` for particles at rest or moving slowly. Detects when particles are inside the mesh or within the surface buffer zone.
+
+**Key Parameters:**
+
+* `SURFACE_BUFFER` (1.2cm): Normal offset from body surface
+* `RESCUE_BUFFER` (2.0cm): Stronger push for deep penetration rescue
+
+### Self-Collision (Spatial Hashing)
+
+Prevents cloth from passing through itself:
+
+1. **Spatial Hash Grid:** Partitions space into 8mm cells for O(1) neighbor lookup
+2. **Particle Pairs:** Each particle queries neighbors within thickness radius
+3. **Separation Correction:** Pushes overlapping particles apart along their connection vector
+
+**Key Parameters:**
+
+* `thickness` (8mm): Minimum separation distance
+* `stiffness` (0.25): Soft response to prevent oscillation
+
+### Collision Response
+
+When collision is detected:
+
+1. Particle position is corrected to surface + buffer
+2. **Velocity Kill:** For rescue (deep penetration), velocity is zeroed to prevent bounce-back
+3. **Friction:** For surface contact, velocity is dampened based on friction coefficient
+
+---
+
 ## 📜 The Evolution (Lessons Learned)
 
 ### ❌ V1: Verlet Integration
@@ -87,12 +127,13 @@ src/
 │   │   └── useInteraction.ts   # Mouse/Touch logic (Raycasting & Kinematic Grabs)
 │   ├── engine/
 │   │   ├── core/
-│   │   │   ├── PhysicsData.ts  # Manages Float32Arrays (Positions, Velocities)
-│   │   │   └── Solver.ts       # The Heart: Integration -> Constraints -> Collision
+│   │   │   ├── PhysicsData.ts   # Manages Float32Arrays (Positions, Velocities)
+│   │   │   ├── Solver.ts        # The Heart: Integration -> Constraints -> Collision
+│   │   │   └── SpatialHash.ts   # Spatial partitioning for self-collision
 │   │   ├── constraints/
 │   │   │   ├── DistanceConstraint.ts # Structural integrity (Stretching)
 │   │   │   └── BendingConstraint.ts  # Stiffness (Folding)
-│   │   └── MannequinCollider.ts      # MeshBVH wrapper for body collision
+│   │   └── MannequinCollider.ts      # MeshBVH wrapper for body collision (CCD + Discrete)
 │   ├── presentation/
 │   │   └── components/
 │   │       └── VirtualTryOn.tsx # Loads assets, welds geometry, renders scene
@@ -143,12 +184,30 @@ You can define the material properties in `src/v3/shared/constants.ts`.
 
 ---
 
+## ⚠️ Known Limitations
+
+### Active Issues (Under Investigation)
+
+1. **Cloth Passing Through Body:** During user interaction (pulling/dragging), cloth particles can penetrate the mannequin mesh. The CCD raycast approach does not fully prevent tunneling during fast or aggressive movements.
+
+2. **Violent Vibration Upon Release:** When the user releases the cloth after pulling, it exhibits unstable oscillation—sometimes described as a "tornado effect" where the cloth's inside flips outward. This is caused by accumulated velocity and self-collision feedback loops.
+
+### Other Limitations
+
+1. **Self-Collision Oscillation:** With complex folds, self-collision can cause minor jitter. Mitigated by soft stiffness.
+2. **Single Garment:** Currently optimized for one garment at a time.
+3. **No GPU Acceleration:** All physics runs on CPU in the main thread.
+
+---
+
 ## 🔮 Future Roadmap
 
-1. **Self-Collision:** Currently, the shirt can pass through itself. We need to implement **Spatial Hashing** to prevent this.
-2. **WASM Optimization:** Move the `Solver.ts` loop to **Rust/WebAssembly** for a 10x performance boost.
+1. **Web Worker Offloading:** Move physics solver to a Web Worker to free main thread.
+2. **WASM Optimization:** Port `Solver.ts` to **Rust/WebAssembly** for 5-10x performance.
 3. **Wind Simulation:** Add aerodynamic drag forces based on triangle normals.
 4. **Fit Analysis:** Visualize tension maps (Red = Tight, Green = Loose) on the visual mesh.
+5. **Multi-Garment Layering:** Support jacket over shirt with proper inter-garment collision.
+6. **GPU Compute:** Explore WebGPU compute shaders for massively parallel constraint solving.
 
 ---
 

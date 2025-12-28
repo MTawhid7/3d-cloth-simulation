@@ -1,115 +1,130 @@
+// src/v3/engine/core/Solver.ts
 import * as THREE from 'three';
 import { PhysicsData } from './PhysicsData';
 import { DistanceConstraint } from '../constraints/DistanceConstraint';
 import { BendingConstraint } from '../constraints/BendingConstraint';
+import { MouseConstraint } from '../constraints/MouseConstraint';
 import { MannequinCollider } from '../MannequinCollider';
+import { SpatialHash } from './SpatialHash';
 import { PHYSICS_CONSTANTS } from '../../shared/constants';
 
 export class Solver {
     public data: PhysicsData;
+
     private distanceConstraints: DistanceConstraint;
     private bendingConstraints: BendingConstraint;
+    private mouseConstraint: MouseConstraint;
+
+    // Public for Debugging
     public collider: MannequinCollider;
+    private selfCollider: SpatialHash;
+
     private tempVec = new THREE.Vector3();
+    private tempPrev = new THREE.Vector3();
 
-    constructor(clothMesh: THREE.Mesh, collisionMesh: THREE.Mesh) {
-        this.data = new PhysicsData(clothMesh);
-        this.distanceConstraints = new DistanceConstraint(clothMesh.geometry, this.data);
-        this.bendingConstraints = new BendingConstraint(clothMesh.geometry, this.data);
+    constructor(proxyMesh: THREE.Mesh, collisionMesh: THREE.Mesh) {
+        this.data = new PhysicsData(proxyMesh);
 
-        // Initialize Collider with the Mannequin Mesh
-        this.collider = new MannequinCollider(collisionMesh);
+        this.distanceConstraints = new DistanceConstraint(proxyMesh.geometry, this.data);
+        this.bendingConstraints = new BendingConstraint(proxyMesh.geometry, this.data);
+        this.mouseConstraint = new MouseConstraint();
+
+        this.collider = new MannequinCollider();
+        this.collider.setMesh(collisionMesh);
+
+        this.selfCollider = new SpatialHash(this.data.count);
     }
 
     public update(dt: number) {
-        const sdt = dt / PHYSICS_CONSTANTS.substeps;
+        const substeps = PHYSICS_CONSTANTS.substeps;
+        const sdt = dt / substeps;
 
-        for (let step = 0; step < PHYSICS_CONSTANTS.substeps; step++) {
+        this.collider.updateMatrix();
+
+        for (let step = 0; step < substeps; step++) {
             this.integrate(sdt);
-
-            // 1. Structural
-            const structuralAlpha = PHYSICS_CONSTANTS.compliance / (sdt * sdt);
-            this.distanceConstraints.solve(this.data, structuralAlpha);
-
-            // 2. Bending (Softer)
-            const bendingAlpha = (PHYSICS_CONSTANTS.compliance * PHYSICS_CONSTANTS.bendingMultiplier) / (sdt * sdt);
-            this.bendingConstraints.solve(this.data, bendingAlpha);
-
-            // 3. Collision
+            this.mouseConstraint.solve(this.data, sdt);
+            this.distanceConstraints.solve(this.data, sdt);
+            this.bendingConstraints.solve(this.data, sdt);
             this.solveCollisions();
+            this.selfCollider.solve(this.data);
         }
     }
 
     private integrate(dt: number) {
-        const count = this.data.count;
         const gravity = PHYSICS_CONSTANTS.gravity * dt * dt;
         const drag = PHYSICS_CONSTANTS.drag;
 
-        const pos = this.data.positions;
-        const prev = this.data.prevPositions;
-        const invMass = this.data.invMass;
-
-        for (let i = 0; i < count; i++) {
-            if (invMass[i] === 0) continue;
+        for (let i = 0; i < this.data.count; i++) {
+            if (this.data.invMass[i] === 0) continue;
 
             const idx = i * 3;
-            let x = pos[idx];
-            let y = pos[idx + 1];
-            let z = pos[idx + 2];
+            const x = this.data.positions[idx];
+            const y = this.data.positions[idx + 1];
+            const z = this.data.positions[idx + 2];
 
-            const px = prev[idx];
-            const py = prev[idx + 1];
-            const pz = prev[idx + 2];
+            const px = this.data.prevPositions[idx];
+            const py = this.data.prevPositions[idx + 1];
+            const pz = this.data.prevPositions[idx + 2];
 
-            const vx = (x - px) * drag;
-            const vy = (y - py) * drag;
-            const vz = (z - pz) * drag;
+            const nx = x + (x - px) * drag;
+            const ny = y + (y - py) * drag + gravity;
+            const nz = z + (z - pz) * drag;
 
-            prev[idx] = x;
-            prev[idx + 1] = y;
-            prev[idx + 2] = z;
+            this.data.prevPositions[idx] = x;
+            this.data.prevPositions[idx + 1] = y;
+            this.data.prevPositions[idx + 2] = z;
 
-            x += vx;
-            y += vy + gravity;
-            z += vz;
-
-            // --- SAFETY CLAMP (Prevent Explosion) ---
-            if (Math.abs(x) > 10 || Math.abs(y) > 10 || Math.abs(z) > 10 || isNaN(x)) {
-                // Reset to a safe spot if it flies away
-                x = 0; y = 1.35; z = 0.2;
-                prev[idx] = x; prev[idx + 1] = y; prev[idx + 2] = z;
-            }
-            // ----------------------------------------
-
-            pos[idx] = x;
-            pos[idx + 1] = y;
-            pos[idx + 2] = z;
+            this.data.positions[idx] = nx;
+            this.data.positions[idx + 1] = ny;
+            this.data.positions[idx + 2] = nz;
         }
     }
 
     private solveCollisions() {
-        const count = this.data.count;
-        const pos = this.data.positions;
-        const prev = this.data.prevPositions;
-        const invMass = this.data.invMass;
+        for (let i = 0; i < this.data.count; i++) {
+            if (this.data.invMass[i] === 0) continue;
 
-        for (let i = 0; i < count; i++) {
-            if (invMass[i] === 0) continue;
             const idx = i * 3;
+            this.tempVec.set(this.data.positions[idx], this.data.positions[idx + 1], this.data.positions[idx + 2]);
+            this.tempPrev.set(this.data.prevPositions[idx], this.data.prevPositions[idx + 1], this.data.prevPositions[idx + 2]);
 
-            this.tempVec.set(pos[idx], pos[idx + 1], pos[idx + 2]);
+            if (this.collider.collide(this.tempVec, this.tempPrev)) {
+                this.data.positions[idx] = this.tempVec.x;
+                this.data.positions[idx + 1] = this.tempVec.y;
+                this.data.positions[idx + 2] = this.tempVec.z;
 
-            if (this.collider.resolveCollision(this.tempVec)) {
-                pos[idx] = this.tempVec.x;
-                pos[idx + 1] = this.tempVec.y;
-                pos[idx + 2] = this.tempVec.z;
-
-                // Friction: Dampen velocity on contact
-                const f = 1 - PHYSICS_CONSTANTS.friction;
-                prev[idx] = prev[idx] + (pos[idx] - prev[idx]) * f;
-                prev[idx + 1] = prev[idx + 1] + (pos[idx + 1] - prev[idx + 1]) * f;
-                prev[idx + 2] = prev[idx + 2] + (pos[idx + 2] - prev[idx + 2]) * f;
+                const f = PHYSICS_CONSTANTS.friction / PHYSICS_CONSTANTS.substeps;
+                this.data.prevPositions[idx] += (this.data.positions[idx] - this.data.prevPositions[idx]) * f;
+                this.data.prevPositions[idx + 1] += (this.data.positions[idx + 1] - this.data.prevPositions[idx + 1]) * f;
+                this.data.prevPositions[idx + 2] += (this.data.positions[idx + 2] - this.data.prevPositions[idx + 2]) * f;
             }
         }
+    }
+
+    public startInteraction(index: number, point: THREE.Vector3) {
+        this.data.interaction.active = true;
+        this.data.interaction.particleIndex = index;
+        this.data.interaction.target.copy(point);
+    }
+
+    public updateInteraction(point: THREE.Vector3) {
+        if (this.data.interaction.active) {
+            this.data.interaction.target.copy(point);
+        }
+    }
+
+    public endInteraction(velocity: THREE.Vector3) {
+        if (!this.data.interaction.active) return;
+        const idx = this.data.interaction.particleIndex * 3;
+        const dt = 0.016;
+        const damping = PHYSICS_CONSTANTS.interaction.releaseDamping;
+
+        this.data.prevPositions[idx] = this.data.positions[idx] - (velocity.x * dt * damping);
+        this.data.prevPositions[idx + 1] = this.data.positions[idx + 1] - (velocity.y * dt * damping);
+        this.data.prevPositions[idx + 2] = this.data.positions[idx + 2] - (velocity.z * dt * damping);
+
+        this.data.interaction.active = false;
+        this.data.interaction.particleIndex = -1;
     }
 }

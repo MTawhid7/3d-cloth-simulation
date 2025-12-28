@@ -1,23 +1,20 @@
+// src/v3/engine/constraints/BendingConstraint.ts
 import * as THREE from 'three';
 import { PhysicsData } from '../core/PhysicsData';
+import { PHYSICS_CONSTANTS } from '../../shared/constants';
 
 export class BendingConstraint {
-    private constraints!: Int32Array;
-    private restLengths!: Float32Array;
-    private count!: number;
+    // Initialize with empty defaults
+    private constraints: Int32Array = new Int32Array(0);
+    private restLengths: Float32Array = new Float32Array(0);
+    private count: number = 0;
 
     constructor(geo: THREE.BufferGeometry, data: PhysicsData) {
-        this.initConstraints(geo, data);
-    }
-
-    private initConstraints(geo: THREE.BufferGeometry, data: PhysicsData) {
         const index = geo.index;
         if (!index) return;
 
-        // Adjacency Map: Vertex -> Neighbors
+        // 1. Build Adjacency Map
         const adj = new Array(data.count).fill(0).map(() => new Set<number>());
-
-        // Build adjacency
         for (let i = 0; i < index.count; i += 3) {
             const a = index.getX(i);
             const b = index.getX(i + 1);
@@ -31,12 +28,12 @@ export class BendingConstraint {
         const lengthList: number[] = [];
         const processed = new Set<string>();
 
-        // Find "2-hop" neighbors (Neighbors of neighbors)
+        // 2. Find "2-hop" neighbors
         for (let i = 0; i < data.count; i++) {
             adj[i].forEach((neighbor) => {
                 adj[neighbor].forEach((farNeighbor) => {
-                    if (i === farNeighbor) return; // Self
-                    if (adj[i].has(farNeighbor)) return; // Existing edge (Distance Constraint)
+                    if (i === farNeighbor) return;
+                    if (adj[i].has(farNeighbor)) return; // Skip direct edges
 
                     const key = i < farNeighbor ? `${i}_${farNeighbor}` : `${farNeighbor}_${i}`;
                     if (processed.has(key)) return;
@@ -44,7 +41,6 @@ export class BendingConstraint {
 
                     constraintList.push(i, farNeighbor);
 
-                    // Calculate Rest Length
                     const idxA = i * 3;
                     const idxB = farNeighbor * 3;
                     const dx = data.positions[idxA] - data.positions[idxB];
@@ -58,29 +54,33 @@ export class BendingConstraint {
         this.constraints = new Int32Array(constraintList);
         this.restLengths = new Float32Array(lengthList);
         this.count = lengthList.length;
-        console.log(`[Physics] Created ${this.count} Bending Constraints`);
     }
 
-    public solve(data: PhysicsData, alpha: number) {
+    public solve(data: PhysicsData, dt: number) {
+        const alpha = PHYSICS_CONSTANTS.bendingCompliance / (dt * dt);
         const pos = data.positions;
         const invMass = data.invMass;
 
         for (let i = 0; i < this.count; i++) {
-            const idxA = this.constraints[i * 2] * 3;
-            const idxB = this.constraints[i * 2 + 1] * 3;
+            const idA = this.constraints[i * 2];
+            const idB = this.constraints[i * 2 + 1];
 
-            const wA = invMass[this.constraints[i * 2]];
-            const wB = invMass[this.constraints[i * 2 + 1]];
+            const wA = invMass[idA];
+            const wB = invMass[idB];
             const wSum = wA + wB;
             if (wSum === 0) continue;
+
+            const idxA = idA * 3;
+            const idxB = idB * 3;
 
             const dx = pos[idxA] - pos[idxB];
             const dy = pos[idxA + 1] - pos[idxB + 1];
             const dz = pos[idxA + 2] - pos[idxB + 2];
 
             const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            const rest = this.restLengths[i];
+            if (dist < 0.000001) continue;
 
+            const rest = this.restLengths[i];
             const C = dist - rest;
             const lambda = -C / (wSum + alpha);
 

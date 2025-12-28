@@ -2,7 +2,6 @@
 ├── .DS_Store
 ├── .gitignore
 ├── README.md
-├── capsule.json
 ├── eslint.config.js
 ├── index.html
 ├── package-lock.json
@@ -17,83 +16,114 @@
 │   ├── .DS_Store
 │   ├── App.css
 │   ├── App.tsx
+│   ├── archives
+│   │   ├── v1_verlet
+│   │   │   ├── application
+│   │   │   │   └── Viewer.tsx
+│   │   │   ├── infrastructure
+│   │   │   │   ├── PerformanceMonitor.ts
+│   │   │   │   └── config.ts
+│   │   │   ├── presentation
+│   │   │   │   ├── AssetManager.ts
+│   │   │   │   ├── BodyManager.ts
+│   │   │   │   ├── InteractionController.ts
+│   │   │   │   ├── SceneManager.ts
+│   │   │   │   ├── factories
+│   │   │   │   │   └── ClothFactory.ts
+│   │   │   │   └── systems
+│   │   │   │       ├── AssetLoaderSystem.ts
+│   │   │   │       ├── DebugSystem.ts
+│   │   │   │       ├── PhysicsSystem.ts
+│   │   │   │       └── RendererSystem.ts
+│   │   │   ├── simulation
+│   │   │   │   ├── IPhysicsEngine.ts
+│   │   │   │   ├── PhysicsState.ts
+│   │   │   │   ├── VerletPhysicsEngine.ts
+│   │   │   │   ├── forces
+│   │   │   │   │   └── WindForce.ts
+│   │   │   │   ├── solvers
+│   │   │   │   │   ├── BVHCollider.ts
+│   │   │   │   │   ├── CollisionSolver.ts
+│   │   │   │   │   └── ConstraintSolver.ts
+│   │   │   │   ├── types.ts
+│   │   │   │   └── utils
+│   │   │   │       └── Adjacency.ts
+│   │   │   └── types
+│   │   │       └── index.ts
+│   │   └── v2_rapier
+│   │       ├── AppV2.tsx
+│   │       ├── components
+│   │       │   ├── avatar
+│   │       │   │   └── Mannequin.tsx
+│   │       │   ├── canvas
+│   │       │   │   └── Scene.tsx
+│   │       │   ├── debug
+│   │       │   │   ├── CollisionDebugger.tsx
+│   │       │   │   ├── PhysicsVisualizer.tsx
+│   │       │   │   └── VelocityVisualizer.tsx
+│   │       │   ├── garment
+│   │       │   │   ├── GarmentVisualizer.tsx
+│   │       │   │   └── Shirt.tsx
+│   │       │   └── ui
+│   │       │       ├── ControlPanel.tsx
+│   │       │       ├── DebugPanel.tsx
+│   │       │       └── MaterialSelector.tsx
+│   │       ├── config
+│   │       │   ├── debug.config.ts
+│   │       │   └── physics.config.ts
+│   │       ├── hooks
+│   │       │   ├── useGarmentInteraction.ts
+│   │       │   ├── useGarmentLoader.ts
+│   │       │   ├── useGarmentPhysics.ts
+│   │       │   ├── usePhysicsDebug.ts
+│   │       │   └── useSettlingForce.ts
+│   │       ├── types
+│   │       │   ├── garment.types.ts
+│   │       │   └── physics.types.ts
+│   │       └── utils
+│   │           ├── geometry.ts
+│   │           ├── materials.ts
+│   │           ├── skinning.ts
+│   │           └── validation.ts
 │   ├── assets
 │   │   ├── models
 │   │   └── react.svg
 │   ├── index.css
-│   ├── legacy
-│   │   ├── application
-│   │   │   └── Viewer.tsx
-│   │   ├── infrastructure
-│   │   │   ├── PerformanceMonitor.ts
-│   │   │   └── config.ts
-│   │   ├── presentation
-│   │   │   ├── AssetManager.ts
-│   │   │   ├── BodyManager.ts
-│   │   │   ├── InteractionController.ts
-│   │   │   ├── SceneManager.ts
-│   │   │   ├── factories
-│   │   │   │   └── ClothFactory.ts
-│   │   │   └── systems
-│   │   │       ├── AssetLoaderSystem.ts
-│   │   │       ├── DebugSystem.ts
-│   │   │       ├── PhysicsSystem.ts
-│   │   │       └── RendererSystem.ts
-│   │   ├── simulation
-│   │   │   ├── IPhysicsEngine.ts
-│   │   │   ├── PhysicsState.ts
-│   │   │   ├── VerletPhysicsEngine.ts
-│   │   │   ├── forces
-│   │   │   │   └── WindForce.ts
-│   │   │   ├── solvers
-│   │   │   │   ├── BVHCollider.ts
-│   │   │   │   ├── CollisionSolver.ts
-│   │   │   │   └── ConstraintSolver.ts
-│   │   │   ├── types.ts
-│   │   │   └── utils
-│   │   │       └── Adjacency.ts
-│   │   └── types
-│   │       └── index.ts
 │   ├── main.tsx
-│   └── v2
-│       ├── AppV2.tsx
-│       ├── components
-│       │   ├── avatar
-│       │   │   └── Mannequin.tsx
-│       │   ├── canvas
-│       │   │   └── Scene.tsx
-│       │   ├── debug
-│       │   │   ├── CollisionDebugger.tsx
-│       │   │   ├── PhysicsVisualizer.tsx
-│       │   │   └── VelocityVisualizer.tsx
-│       │   ├── garment
-│       │   │   ├── GarmentVisualizer.tsx
-│       │   │   └── Shirt.tsx
+│   └── v3
+│       ├── AppV3.tsx
+│       ├── adapter
+│       │   ├── useClothEngine.ts
+│       │   └── useInteraction.ts
+│       ├── data
+│       │   └── collider.json
+│       ├── engine
+│       │   ├── MannequinCollider.ts
+│       │   ├── XPBD.ts
+│       │   ├── constraints
+│       │   │   ├── BendingConstraint.ts
+│       │   │   └── DistanceConstraint.ts
+│       │   ├── core
+│       │   │   ├── PhysicsData.ts
+│       │   │   ├── Solver.ts
+│       │   │   └── SpatialHash.ts
+│       │   └── utils
+│       ├── presentation
+│       │   ├── SceneV3.tsx
+│       │   ├── components
+│       │   │   ├── DebugOverlay.tsx
+│       │   │   ├── PhysicsDebug.tsx
+│       │   │   └── VirtualTryOn.tsx
 │       │   └── ui
-│       │       ├── ControlPanel.tsx
-│       │       ├── DebugPanel.tsx
-│       │       └── MaterialSelector.tsx
-│       ├── config
-│       │   ├── debug.config.ts
-│       │   └── physics.config.ts
-│       ├── hooks
-│       │   ├── useGarmentInteraction.ts
-│       │   ├── useGarmentLoader.ts
-│       │   ├── useGarmentPhysics.ts
-│       │   ├── usePhysicsDebug.ts
-│       │   └── useSettlingForce.ts
-│       ├── types
-│       │   ├── garment.types.ts
-│       │   └── physics.types.ts
+│       ├── shared
+│       │   ├── constants.ts
+│       │   └── types.ts
 │       └── utils
-│           ├── geometry.ts
-│           ├── materials.ts
-│           ├── skinning.ts
-│           └── validation.ts
+│           └── skinning.ts
 ├── structure.txt
 ├── tsconfig.app.json
 ├── tsconfig.json
 ├── tsconfig.node.json
 └── vite.config.ts
 
-27 directories, 70 files
+40 directories, 87 files

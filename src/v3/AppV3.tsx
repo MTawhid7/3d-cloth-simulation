@@ -1,3 +1,4 @@
+// src/v3/AppV3.tsx
 import { Canvas } from '@react-three/fiber';
 import { SceneV3 } from './presentation/SceneV3';
 

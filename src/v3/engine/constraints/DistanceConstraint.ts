@@ -1,16 +1,15 @@
+// src/v3/engine/constraints/DistanceConstraint.ts
 import * as THREE from 'three';
 import { PhysicsData } from '../core/PhysicsData';
+import { PHYSICS_CONSTANTS } from '../../shared/constants';
 
 export class DistanceConstraint {
-    private constraints!: Int32Array; // [idA, idB, idA, idB...]
-    private restLengths!: Float32Array;
-    private count!: number;
+    // Initialize with empty defaults to satisfy TypeScript strict mode
+    private constraints: Int32Array = new Int32Array(0);
+    private restLengths: Float32Array = new Float32Array(0);
+    private count: number = 0;
 
     constructor(geo: THREE.BufferGeometry, data: PhysicsData) {
-        this.initConstraints(geo, data);
-    }
-
-    private initConstraints(geo: THREE.BufferGeometry, data: PhysicsData) {
         const index = geo.index;
         if (!index) throw new Error("Mesh must be indexed");
 
@@ -25,7 +24,6 @@ export class DistanceConstraint {
 
             constraintList.push(a, b);
 
-            // Calculate Rest Length
             const idxA = a * 3;
             const idxB = b * 3;
             const dx = data.positions[idxA] - data.positions[idxB];
@@ -43,30 +41,35 @@ export class DistanceConstraint {
         this.constraints = new Int32Array(constraintList);
         this.restLengths = new Float32Array(lengthList);
         this.count = lengthList.length;
-        console.log(`[Physics] Created ${this.count} Distance Constraints`);
     }
 
-    public solve(data: PhysicsData, alpha: number) {
+    public solve(data: PhysicsData, dt: number) {
+        const alpha = PHYSICS_CONSTANTS.compliance / (dt * dt);
         const pos = data.positions;
         const invMass = data.invMass;
 
         for (let i = 0; i < this.count; i++) {
-            const idxA = this.constraints[i * 2] * 3;
-            const idxB = this.constraints[i * 2 + 1] * 3;
+            const idA = this.constraints[i * 2];
+            const idB = this.constraints[i * 2 + 1];
 
-            const wA = invMass[this.constraints[i * 2]];
-            const wB = invMass[this.constraints[i * 2 + 1]];
+            const wA = invMass[idA];
+            const wB = invMass[idB];
             const wSum = wA + wB;
             if (wSum === 0) continue;
+
+            const idxA = idA * 3;
+            const idxB = idB * 3;
 
             const dx = pos[idxA] - pos[idxB];
             const dy = pos[idxA + 1] - pos[idxB + 1];
             const dz = pos[idxA + 2] - pos[idxB + 2];
 
             const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            const rest = this.restLengths[i];
+            if (dist < 0.000001) continue;
 
+            const rest = this.restLengths[i];
             const C = dist - rest;
+
             const lambda = -C / (wSum + alpha);
 
             const nx = dx / dist;

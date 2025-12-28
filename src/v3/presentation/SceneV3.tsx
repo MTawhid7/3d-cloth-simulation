@@ -1,3 +1,4 @@
+// src/v3/presentation/SceneV3.tsx
 import { OrbitControls, Environment, ContactShadows } from '@react-three/drei';
 import { VirtualTryOn } from './components/VirtualTryOn';
 import { DebugOverlay } from './components/DebugOverlay'; // <--- Import

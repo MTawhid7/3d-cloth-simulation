@@ -7,6 +7,7 @@ import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUti
 import { useClothEngine } from '../../adapter/useClothEngine';
 import { useInteraction } from '../../adapter/useInteraction';
 import { PHYSICS_CONSTANTS } from '../../shared/constants';
+import { PhysicsDebug } from './PhysicsDebug';
 
 // Helper to safely extract the first mesh from a GLTF scene
 function findFirstMesh(scene: THREE.Group | THREE.Scene | THREE.Object3D): THREE.Mesh | null {
@@ -102,6 +103,9 @@ export const VirtualTryOn = () => {
                     />
                 </primitive>
             )}
+
+            {/* 4. Collision Debugger (Rays & Hits) */}
+            <PhysicsDebug engine={engine} />
         </group>
     );
 };
