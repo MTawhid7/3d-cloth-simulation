@@ -6,8 +6,7 @@ import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUti
 import { useClothEngine } from '../../adapter/useClothEngine';
 import { useInteraction } from '../../adapter/useInteraction';
 import { PHYSICS_CONSTANTS } from '../../shared/constants';
-import { PhysicsDebug } from './PhysicsDebug';
-import { DebugOverlay } from './DebugOverlay'; // Import the new overlay
+
 
 function findFirstMesh(scene: THREE.Group | THREE.Scene | THREE.Object3D): THREE.Mesh | null {
     let mesh: THREE.Mesh | null = null;
@@ -61,8 +60,7 @@ export const VirtualTryOn = () => {
                 </primitive>
             )}
 
-            <PhysicsDebug engine={engine} />
-            <DebugOverlay engine={engine} />
+
         </group>
     );
 };

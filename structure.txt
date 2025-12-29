@@ -95,19 +95,20 @@
 │       ├── adapter
 │       │   ├── useClothEngine.ts
 │       │   └── useInteraction.ts
-│       ├── data
-│       │   └── collider.json
 │       ├── engine
 │       │   ├── MannequinCollider.ts
-│       │   ├── XPBD.ts
 │       │   ├── constraints
 │       │   │   ├── BendingConstraint.ts
-│       │   │   └── DistanceConstraint.ts
+│       │   │   ├── DistanceConstraint.ts
+│       │   │   └── MouseConstraint.ts
 │       │   ├── core
+│       │   │   ├── Integrator.ts
 │       │   │   ├── PhysicsData.ts
 │       │   │   ├── Solver.ts
 │       │   │   └── SpatialHash.ts
 │       │   └── utils
+│       │       ├── Topology.ts
+│       │       └── math.ts
 │       ├── presentation
 │       │   ├── SceneV3.tsx
 │       │   ├── components
@@ -126,4 +127,4 @@
 ├── tsconfig.node.json
 └── vite.config.ts
 
-40 directories, 87 files
+39 directories, 89 files

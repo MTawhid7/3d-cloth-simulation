@@ -110,7 +110,9 @@ When collision is detected:
 
 * **Approach:** Constraint Projection. We enforce rules ("Edge A must be length L") rather than forces.
 * **Success:**
-  * **Unconditional Stability:** The simulation cannot explode.
+  * **Stable Resting:** The shirt sits stably on the body without exploding or sliding off over time.
+  * **Realistic Stretching:** Fabric stretches naturally and stops at reasonable limits, mimicking real material properties.
+  * **Unconditional Stability:** The simulation handles extreme forces without crashing (NaN protection).
   * **Realism:** Bending constraints prevent the "crumpled paper" look.
   * **Interaction:** "Kinematic Grabbing" allows users to throw the fabric.
   * **Safety:** Added clamps to reset vertices if they exceed world bounds.
@@ -188,9 +190,7 @@ You can define the material properties in `src/v3/shared/constants.ts`.
 
 ### Active Issues (Under Investigation)
 
-1. **Cloth Passing Through Body:** During user interaction (pulling/dragging), cloth particles can penetrate the mannequin mesh. The CCD raycast approach does not fully prevent tunneling during fast or aggressive movements.
-
-2. **Violent Vibration Upon Release:** When the user releases the cloth after pulling, it exhibits unstable oscillation—sometimes described as a "tornado effect" where the cloth's inside flips outward. This is caused by accumulated velocity and self-collision feedback loops.
+1. **Minor Vibration (Wind Effect):** In certain areas, the cloth exhibits a subtle vibration, giving the impression of wind affecting the fabric. This is likely due to micro-collisions or constraint solver jitter at rest.
 
 ### Other Limitations
 
