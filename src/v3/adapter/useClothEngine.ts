@@ -15,43 +15,36 @@ export function useClothEngine(
     const skinningRef = useRef<SkinningData | null>(null);
     const initialized = useRef(false);
 
+    // Reusable normal vector
+    const pA = new THREE.Vector3();
+    const pB = new THREE.Vector3();
+    const pC = new THREE.Vector3();
+
     useEffect(() => {
         if (!proxyMesh || !visualMesh || !mannequinMesh || initialized.current) return;
-
         console.log('[Adapter] Initializing Physics Engine V3...');
-
-        // Initialize Solver
         const engine = new Solver(proxyMesh, mannequinMesh);
         engineRef.current = engine;
-
-        // Initialize Skinning
         skinningRef.current = computeSkinning(visualMesh, proxyMesh);
-
         initialized.current = true;
-
     }, [proxyMesh, visualMesh, mannequinMesh]);
 
     useFrame((_, delta) => {
         const engine = engineRef.current;
         const skinning = skinningRef.current;
-
         if (!engine || !proxyMesh || !visualMesh || !skinning) return;
 
-        // Safety Clamp for Delta Time
         const dt = Math.min(delta, 0.032);
-
-        // Step Physics
         engine.update(dt);
 
-        // Update Visual Mesh (Skinning)
         const visualPos = visualMesh.geometry.attributes.position;
+        const visualNormals = visualMesh.geometry.attributes.normal; // Need normals for bias
         const proxyPos = engine.data.positions;
         const physicsIndex = proxyMesh.geometry.index!;
         const { indices, weights } = skinning;
 
-        const pA = new THREE.Vector3();
-        const pB = new THREE.Vector3();
-        const pC = new THREE.Vector3();
+        // Visual Bias (Thickness Simulation)
+        const BIAS = 0.002; // 2mm offset
 
         for (let i = 0; i < visualPos.count; i++) {
             const faceIdx = indices[i];
@@ -67,20 +60,25 @@ export function useClothEngine(
             pB.set(proxyPos[idxB], proxyPos[idxB + 1], proxyPos[idxB + 2]);
             pC.set(proxyPos[idxC], proxyPos[idxC + 1], proxyPos[idxC + 2]);
 
+            // Interpolated Position
             const x = pA.x * w1 + pB.x * w2 + pC.x * w3;
             const y = pA.y * w1 + pB.y * w2 + pC.y * w3;
             const z = pA.z * w1 + pB.z * w2 + pC.z * w3;
 
-            visualPos.setXYZ(i, x, y, z);
+            // Apply Bias along Visual Normal
+            // Note: visualNormals might be slightly outdated until computeVertexNormals is called,
+            // but it's stable enough for bias direction.
+            const nx = visualNormals.getX(i);
+            const ny = visualNormals.getY(i);
+            const nz = visualNormals.getZ(i);
+
+            visualPos.setXYZ(i, x + nx * BIAS, y + ny * BIAS, z + nz * BIAS);
         }
 
         visualPos.needsUpdate = true;
         visualMesh.geometry.computeVertexNormals();
-
-        // Update bounds for raycasting
         visualMesh.geometry.computeBoundingSphere();
 
-        // Debug Sync
         if (PHYSICS_CONSTANTS.debug.showProxy) {
             engine.data.syncToMesh(proxyMesh);
         }

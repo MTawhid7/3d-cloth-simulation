@@ -1,7 +1,8 @@
 // src/v3/presentation/SceneV3.tsx
 import { OrbitControls, Environment, ContactShadows } from '@react-three/drei';
 import { VirtualTryOn } from './components/VirtualTryOn';
-import { DebugOverlay } from './components/DebugOverlay'; // <--- Import
+// DebugOverlay is now integrated into VirtualTryOn or passed down
+// Since VirtualTryOn owns the engine, we should render DebugOverlay THERE.
 
 export const SceneV3 = () => {
     return (
@@ -13,9 +14,6 @@ export const SceneV3 = () => {
             <ContactShadows resolution={1024} scale={10} blur={1} opacity={0.5} far={1} color="#000000" />
 
             <VirtualTryOn />
-
-            {/* Add the Debug Overlay */}
-            <DebugOverlay />
         </>
     );
 };

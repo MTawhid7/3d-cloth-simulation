@@ -1,67 +1,60 @@
-import { useEffect } from 'react';
-import { useThree } from '@react-three/fiber';
-import * as THREE from 'three';
+// src/v3/presentation/components/DebugOverlay.tsx
+import { useState } from 'react';
+import { useFrame } from '@react-three/fiber';
+import { Solver } from '../../engine/core/Solver';
 
-export const DebugOverlay = () => {
-    const { scene } = useThree();
+// We need a way to access the solver from the UI.
+// Since the solver is in React state/ref, we can pass it via a global store or context,
+// but for simplicity in this architecture, we'll attach it to the window or use a prop if possible.
+// Assuming this component is inside the Canvas, we can't easily render HTML DOM.
+// So we will make this a standard React component that sits OUTSIDE the Canvas,
+// but that requires lifting state.
+//
+// ALTERNATIVE: Render HTML inside Canvas using @react-three/drei/Html
 
-    useEffect(() => {
-        const analyzeMesh = (name: string) => {
-            const object = scene.getObjectByName(name);
-            if (!object) {
-                console.warn(`⚠️ Could not find object: ${name}`);
-                return;
-            }
+import { Html } from '@react-three/drei';
 
-            console.group(`🔍 DIAGNOSTIC: ${name}`);
+export const DebugOverlay = ({ engine }: { engine: Solver | null }) => {
+    const [stats, setStats] = useState({ inside: 0, contact: 0, fps: 0 });
 
-            // 1. World Scale (Accumulated from parents)
-            const worldScale = new THREE.Vector3();
-            object.getWorldScale(worldScale);
-            console.log('World Scale:', worldScale.toArray());
-
-            // 2. Bounding Box (Physical Size in Meters)
-            const box = new THREE.Box3().setFromObject(object);
-            const size = new THREE.Vector3();
-            box.getSize(size);
-            console.log('Bounding Box Size (Meters):', {
-                width: size.x.toFixed(4),
-                height: size.y.toFixed(4),
-                depth: size.z.toFixed(4)
+    useFrame((state) => {
+        if (!engine) return;
+        // Throttle updates to 10fps to save React render cycles
+        if (state.clock.elapsedTime % 0.1 < 0.02) {
+            setStats({
+                inside: engine.collider.debugData.stats.insideCount,
+                contact: engine.collider.debugData.stats.contactCount,
+                fps: Math.round(1 / state.clock.getDelta())
             });
+        }
+    });
 
-            // 3. Vertex Check (Where is the first vertex?)
-            if ((object as THREE.Mesh).geometry) {
-                const pos = (object as THREE.Mesh).geometry.attributes.position;
-                console.log('First Vertex (Local):',
-                    pos.getX(0).toFixed(4),
-                    pos.getY(0).toFixed(4),
-                    pos.getZ(0).toFixed(4)
-                );
-            }
-            console.groupEnd();
-        };
-
-        // Run analysis after a short delay to ensure loading
-        setTimeout(() => {
-            console.clear();
-            console.log("🚀 STARTING SCENE GRAPH INSPECTION");
-
-            // Analyze Mannequin (You might need to find the exact mesh name in Blender)
-            // Usually it's the name of the object in the Outliner
-            scene.traverse(child => {
-                if (child.type === 'Mesh') {
-                    analyzeMesh(child.name);
-                }
-            });
-        }, 2000);
-
-    }, [scene]);
+    if (!engine) return null;
 
     return (
-        <group>
-            <axesHelper args={[2]} />
-            <gridHelper args={[10, 10]} />
-        </group>
+        <Html position={[-0.8, 1.8, 0]} style={{ pointerEvents: 'none' }}>
+            <div style={{
+                background: 'rgba(0,0,0,0.8)',
+                color: '#0f0',
+                padding: '12px',
+                fontFamily: 'monospace',
+                fontSize: '12px',
+                borderRadius: '4px',
+                width: '200px',
+                border: '1px solid #333'
+            }}>
+                <div style={{ borderBottom: '1px solid #555', marginBottom: '4px', paddingBottom: '4px', fontWeight: 'bold' }}>
+                    PHYSICS DIAGNOSTICS
+                </div>
+                <div>Particles: {engine.data.count}</div>
+                <div>Substeps: 10</div>
+                <div style={{ marginTop: '8px', color: stats.inside > 0 ? '#f55' : '#888' }}>
+                    ⚠ Deep Rescue: {stats.inside}
+                </div>
+                <div style={{ color: '#ff0' }}>
+                    ⚡ Surface Contact: {stats.contact}
+                </div>
+            </div>
+        </Html>
     );
 };

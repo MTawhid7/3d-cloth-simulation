@@ -4,12 +4,16 @@ import { PhysicsData } from '../core/PhysicsData';
 import { PHYSICS_CONSTANTS } from '../../shared/constants';
 
 export class DistanceConstraint {
-    // Initialize with empty defaults to satisfy TypeScript strict mode
     private constraints: Int32Array = new Int32Array(0);
     private restLengths: Float32Array = new Float32Array(0);
     private count: number = 0;
 
+    // New: Specific constraints for the collar
+    private collarIndices: Set<number> = new Set();
+
     constructor(geo: THREE.BufferGeometry, data: PhysicsData) {
+        // ... existing constructor code ...
+        // (Copy the constructor from previous step)
         const index = geo.index;
         if (!index) throw new Error("Mesh must be indexed");
 
@@ -21,9 +25,7 @@ export class DistanceConstraint {
             const key = a < b ? `${a}_${b}` : `${b}_${a}`;
             if (edges.has(key)) return;
             edges.add(key);
-
             constraintList.push(a, b);
-
             const idxA = a * 3;
             const idxB = b * 3;
             const dx = data.positions[idxA] - data.positions[idxB];
@@ -43,19 +45,37 @@ export class DistanceConstraint {
         this.count = lengthList.length;
     }
 
+    public setCollar(indices: Set<number>) {
+        this.collarIndices = indices;
+    }
+
     public solve(data: PhysicsData, dt: number) {
         const alpha = PHYSICS_CONSTANTS.compliance / (dt * dt);
         const pos = data.positions;
         const invMass = data.invMass;
 
+        // Pass 1: XPBD (Soft)
+        for (let i = 0; i < this.count; i++) {
+            this.solveConstraint(i, pos, invMass, alpha);
+        }
+    }
+
+    public solveHardLimits(data: PhysicsData) {
+        const pos = data.positions;
+        const invMass = data.invMass;
+
+        // Pass 2: Hard Limits (The "Goldilocks" Pass)
+        // We allow 5% stretch for normal cloth, 0% for collar
+        const GLOBAL_LIMIT = 1.05;
+        const COLLAR_LIMIT = 1.00;
+
         for (let i = 0; i < this.count; i++) {
             const idA = this.constraints[i * 2];
             const idB = this.constraints[i * 2 + 1];
 
-            const wA = invMass[idA];
-            const wB = invMass[idB];
-            const wSum = wA + wB;
-            if (wSum === 0) continue;
+            // Check if this is a collar edge (both vertices in collar set)
+            const isCollar = this.collarIndices.has(idA) && this.collarIndices.has(idB);
+            const limit = isCollar ? COLLAR_LIMIT : GLOBAL_LIMIT;
 
             const idxA = idA * 3;
             const idxB = idB * 3;
@@ -63,29 +83,70 @@ export class DistanceConstraint {
             const dx = pos[idxA] - pos[idxB];
             const dy = pos[idxA + 1] - pos[idxB + 1];
             const dz = pos[idxA + 2] - pos[idxB + 2];
-
             const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            if (dist < 0.000001) continue;
-
             const rest = this.restLengths[i];
-            const C = dist - rest;
 
-            const lambda = -C / (wSum + alpha);
+            // If stretched beyond limit, HARD RESET
+            if (dist > rest * limit) {
+                const correction = dist - (rest * limit);
+                const wA = invMass[idA];
+                const wB = invMass[idB];
+                const wSum = wA + wB;
+                if (wSum === 0) continue;
 
-            const nx = dx / dist;
-            const ny = dy / dist;
-            const nz = dz / dist;
+                const nx = dx / dist;
+                const ny = dy / dist;
+                const nz = dz / dist;
 
-            if (wA > 0) {
-                pos[idxA] += nx * lambda * wA;
-                pos[idxA + 1] += ny * lambda * wA;
-                pos[idxA + 2] += nz * lambda * wA;
+                // Direct position modification (No alpha, no forces)
+                const s = correction / wSum;
+
+                if (wA > 0) {
+                    pos[idxA] -= nx * s * wA;
+                    pos[idxA + 1] -= ny * s * wA;
+                    pos[idxA + 2] -= nz * s * wA;
+                }
+                if (wB > 0) {
+                    pos[idxB] += nx * s * wB;
+                    pos[idxB + 1] += ny * s * wB;
+                    pos[idxB + 2] += nz * s * wB;
+                }
             }
-            if (wB > 0) {
-                pos[idxB] -= nx * lambda * wB;
-                pos[idxB + 1] -= ny * lambda * wB;
-                pos[idxB + 2] -= nz * lambda * wB;
-            }
+        }
+    }
+
+    private solveConstraint(i: number, pos: Float32Array, invMass: Float32Array, alpha: number) {
+        const idA = this.constraints[i * 2];
+        const idB = this.constraints[i * 2 + 1];
+        const wA = invMass[idA];
+        const wB = invMass[idB];
+        const wSum = wA + wB;
+        if (wSum === 0) return;
+
+        const idxA = idA * 3;
+        const idxB = idB * 3;
+        const dx = pos[idxA] - pos[idxB];
+        const dy = pos[idxA + 1] - pos[idxB + 1];
+        const dz = pos[idxA + 2] - pos[idxB + 2];
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < 1e-6) return;
+
+        const rest = this.restLengths[i];
+        const C = dist - rest;
+        const lambda = -C / (wSum + alpha);
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const nz = dz / dist;
+
+        if (wA > 0) {
+            pos[idxA] += nx * lambda * wA;
+            pos[idxA + 1] += ny * lambda * wA;
+            pos[idxA + 2] += nz * lambda * wA;
+        }
+        if (wB > 0) {
+            pos[idxB] -= nx * lambda * wB;
+            pos[idxB + 1] -= ny * lambda * wB;
+            pos[idxB + 2] -= nz * lambda * wB;
         }
     }
 }
